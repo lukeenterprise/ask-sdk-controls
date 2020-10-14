@@ -113,6 +113,8 @@ export interface ListControlProps extends ControlProps {
     /**
      * Whether the Control has to obtain explicit confirmation of the value.
      *
+     * Default: false
+     *
      * If `true`:
      *  - the Control will take initiative to explicitly confirm the value with a yes/no
      *    question.
