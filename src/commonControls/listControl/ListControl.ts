@@ -113,6 +113,8 @@ export interface ListControlProps extends ControlProps {
     /**
      * Whether the Control has to obtain explicit confirmation of the value.
      *
+     * Default: false
+     *
      * If `true`:
      *  - the Control will report `isReady() = false` if the value has not been
      *    explicitly confirmed as correct by user.

@@ -26,7 +26,7 @@ const log = new Logger('HelloWorld:InteractionModel');
 export namespace ListDemo1IM {
     export const imGen = new ControlInteractionModelGenerator()
         .buildCoreModelForControls(new ListDemo1.DemoControlManager())
-        .withInvocationName('control demos')
+        .withInvocationName('controls demo')
         .addIntent({ name: 'AMAZON.StopIntent' })
         .addIntent({ name: 'AMAZON.NavigateHomeIntent' })
         .addIntent({ name: 'AMAZON.HelpIntent' })
@@ -52,4 +52,3 @@ if (require.main === module) {
     ListDemo1IM.imGen.buildAndWrite('en-US-generated.json');
     console.log('Wrote ./en-US-generated.json');
 }
-
