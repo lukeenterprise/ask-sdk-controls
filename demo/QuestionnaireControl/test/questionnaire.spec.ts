@@ -23,8 +23,8 @@ import { MultipleLists } from '../src';
 
 waitForDebugger();
 
-suite('all', () => {
-    test('YesNoMaybe List Demo - yes as value, then yes as confirmation', async () => {
+suite.only('all', () => {
+    test('Questionnaire Demo', async () => {
         const requestHandler = new ControlHandler(new MultipleLists.DemoControlManager());
         const invoker = new SkillInvoker(requestHandler);
         await testTurn(
