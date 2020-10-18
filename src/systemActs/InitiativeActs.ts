@@ -1,3 +1,4 @@
+import { QuestionnaireControlAPLContent } from '../commonControls/questionnaireControl/QuestionnaireControlAPLBuiltIns';
 /*
  * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -17,6 +18,7 @@ import { ListFormatting } from '../intl/ListFormat';
 import { ControlResponseBuilder } from '../responseGeneration/ControlResponseBuilder';
 import {
     LiteralContentPayload,
+    PresentQuestionnaireAndAskOneQuestionPayload,
     RequestChangedValueByListPayload,
     RequestChangedValuePayload,
     RequestValueByListPayload,
@@ -244,5 +246,18 @@ export class SuggestValueAct<T> extends InitiativeAct {
     render(input: ControlInput, controlResponseBuilder: ControlResponseBuilder): void {
         // TODO: bug: change the message to i18n
         controlResponseBuilder.addPromptFragment(`Did you perhaps mean ${this.payload.value}?`);
+    }
+}
+
+export class PresentQuestionnaireAndAskOneQuestionAct extends InitiativeAct {
+    payload: PresentQuestionnaireAndAskOneQuestionPayload;
+
+    constructor(control: Control, payload: PresentQuestionnaireAndAskOneQuestionPayload) {
+        super(control);
+        this.payload = payload;
+    }
+
+    render(input: ControlInput, responseBuilder: ControlResponseBuilder): void {
+        throw new Error('Method not implemented. see QuestionnaireControl for rendering logic.');
     }
 }

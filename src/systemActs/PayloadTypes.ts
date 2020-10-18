@@ -11,6 +11,8 @@
  * permissions and limitations under the License.
  */
 
+import { QuestionnaireControlAPLContent } from '../commonControls/questionnaireControl/QuestionnaireControlAPLBuiltIns';
+
 /**
  * Payload for ValueSetAct
  */
@@ -75,4 +77,14 @@ export interface RequestChangedValueByListPayload {
 export interface LiteralContentPayload {
     promptFragment: string;
     repromptFragment?: string;
+}
+
+export interface PresentQuestionnaireAndAskOneQuestionPayload {
+    // business data
+    questionnaireID: string; // todo
+    currentAnswers: number[][]; // todo
+
+    // pre-rendered representations
+    renderedAPL: QuestionnaireControlAPLContent;
+    renderedPrompt: string;
 }

@@ -422,8 +422,11 @@ export class ListControl extends Control implements InteractionModelContributor 
 
     private rawProps: ListControlProps;
     private props: DeepRequired<ListControlProps>;
-    private handleFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
-    private initiativeFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
+    private handleFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void | Promise<void>;
+    private initiativeFunc?: (
+        input: ControlInput,
+        resultBuilder: ControlResultBuilder,
+    ) => void | Promise<void>;
 
     constructor(props: ListControlProps) {
         super(props.id);
@@ -864,7 +867,7 @@ export class ListControl extends Control implements InteractionModelContributor 
             log.error(errorMsg);
             throw new Error(errorMsg);
         }
-        this.initiativeFunc(input, resultBuilder);
+        await this.initiativeFunc(input, resultBuilder);
         return;
     }
 
