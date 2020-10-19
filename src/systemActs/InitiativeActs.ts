@@ -18,7 +18,6 @@ import { ListFormatting } from '../intl/ListFormat';
 import { ControlResponseBuilder } from '../responseGeneration/ControlResponseBuilder';
 import {
     LiteralContentPayload,
-    PresentQuestionnaireAndAskOneQuestionPayload,
     RequestChangedValueByListPayload,
     RequestChangedValuePayload,
     RequestValueByListPayload,
@@ -246,18 +245,5 @@ export class SuggestValueAct<T> extends InitiativeAct {
     render(input: ControlInput, controlResponseBuilder: ControlResponseBuilder): void {
         // TODO: bug: change the message to i18n
         controlResponseBuilder.addPromptFragment(`Did you perhaps mean ${this.payload.value}?`);
-    }
-}
-
-export class PresentQuestionnaireAndAskOneQuestionAct extends InitiativeAct {
-    payload: PresentQuestionnaireAndAskOneQuestionPayload;
-
-    constructor(control: Control, payload: PresentQuestionnaireAndAskOneQuestionPayload) {
-        super(control);
-        this.payload = payload;
-    }
-
-    render(input: ControlInput, responseBuilder: ControlResponseBuilder): void {
-        throw new Error('Method not implemented. see QuestionnaireControl for rendering logic.');
     }
 }

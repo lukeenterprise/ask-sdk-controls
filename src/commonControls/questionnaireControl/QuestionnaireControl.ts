@@ -13,40 +13,24 @@
 
 import { getSupportedInterfaces } from 'ask-sdk-core';
 import { Intent, IntentRequest } from 'ask-sdk-model';
-import i18next from 'i18next';
 import _ from 'lodash';
 import { Strings as $ } from '../../constants/Strings';
 import { Control, ControlProps, ControlState } from '../../controls/Control';
-import { ControlAPL } from '../../controls/ControlAPL';
 import { ControlInput } from '../../controls/ControlInput';
 import { ControlResultBuilder } from '../../controls/ControlResult';
 import { InteractionModelContributor } from '../../controls/mixins/InteractionModelContributor';
 import { ValidationResult } from '../../controls/ValidationResult';
 import { ControlInteractionModelGenerator } from '../../interactionModelGeneration/ControlInteractionModelGenerator';
 import { ModelData } from '../../interactionModelGeneration/ModelTypes';
-import { ListFormatting } from '../../intl/ListFormat';
 import { Logger } from '../../logging/Logger';
 import { ControlResponseBuilder } from '../../responseGeneration/ControlResponseBuilder';
-import {
-    InvalidValueAct,
-    UnusableInputValueAct,
-    ValueChangedAct,
-    ValueConfirmedAct,
-    ValueDisconfirmedAct,
-    ValueSetAct,
-} from '../../systemActs/ContentActs';
-import {
-    ConfirmValueAct,
-    InitiativeAct,
-    RequestChangedValueByListAct,
-    RequestValueByListAct,
-} from '../../systemActs/InitiativeActs';
 import { SystemAct } from '../../systemActs/SystemAct';
+import { assert } from '../../utils/AssertionUtils';
 import { StringOrList } from '../../utils/BasicTypes';
 import { DeepRequired } from '../../utils/DeepRequired';
 import { QuestionnaireControlAPLBuiltIns } from './QuestionnaireControlAPLBuiltIns';
-import { QuestionnaireContent } from './QuestionnaireControlStructs';
-import { ConfirmQuestionnaireAnswer } from './QuestionnaireControlSystemActs';
+import { Item, QuestionnaireContent } from './QuestionnaireControlStructs';
+import { AskOneQuestionAct, ConfirmQuestionnaireAnswer } from './QuestionnaireControlSystemActs';
 import { DirectAnswerAct, UserAct } from './QuestionnaireUserActs';
 
 /**
@@ -69,7 +53,9 @@ export interface QuestionnaireControlProps extends ControlProps {
     /**
      * Content for the questionnaire.
      */
-    questionnaireContent: QuestionnaireContent | ((input: ControlInput) => QuestionnaireContent);
+    questionnaireContent:
+        | QuestionnaireContent
+        | ((control: QuestionnaireControl, input: ControlInput) => QuestionnaireContent);
 
     /**
      * Determine if the questionnaire is considered 'sufficiently complete'.
@@ -80,7 +66,7 @@ export interface QuestionnaireControlProps extends ControlProps {
      * - Validation functions return either `true` or a `ValidationResult` to
      *   describe what validation failed.
      */
-    validation?: QuestionnaireCompleteFunction;
+    completion?: QuestionnaireCompleteFunction;
 
     /**
      * Determines if the Control must obtain a value.
@@ -250,22 +236,35 @@ export class QuestionnaireControlInteractionModelProps {
  * `this.renderAct()`.
  */
 export class QuestionnaireControlPromptProps {
-    valueSet?: StringOrList | ((act: ValueSetAct<any>, input: ControlInput) => StringOrList);
-    valueChanged?: StringOrList | ((act: ValueChangedAct<any>, input: ControlInput) => StringOrList);
-    invalidValue?: StringOrList | ((act: InvalidValueAct<any>, input: ControlInput) => StringOrList);
-    unusableInputValue?:
+    askOneQuestionAct:
         | StringOrList
-        | ((act: UnusableInputValueAct<string>, input: ControlInput) => StringOrList);
-    requestValue?: StringOrList | ((act: RequestValueByListAct, input: ControlInput) => StringOrList);
-    requestChangedValue?:
-        | StringOrList
-        | ((act: RequestChangedValueByListAct, input: ControlInput) => StringOrList);
-    confirmValue?: StringOrList | ((act: ConfirmValueAct<any>, input: ControlInput) => StringOrList);
-    valueConfirmed?: StringOrList | ((act: ValueConfirmedAct<any>, input: ControlInput) => StringOrList);
-    valueDisconfirmed?:
-        | StringOrList
-        | ((act: ValueDisconfirmedAct<any>, input: ControlInput) => StringOrList);
+        | ((act: AskOneQuestionAct, control: QuestionnaireControl, input: ControlInput) => StringOrList);
+    // valueSet?: StringOrList | ((act: ValueSetAct<any>, input: ControlInput) => StringOrList);
+    // valueChanged?: StringOrList | ((act: ValueChangedAct<any>, input: ControlInput) => StringOrList);
+    // invalidValue?: StringOrList | ((act: InvalidValueAct<any>, input: ControlInput) => StringOrList);
+    // unusableInputValue?:
+    //     | StringOrList
+    //     | ((act: UnusableInputValueAct<string>, input: ControlInput) => StringOrList);
+    // requestValue?: StringOrList | ((act: RequestValueByListAct, input: ControlInput) => StringOrList);
+    // requestChangedValue?:
+    //     | StringOrList
+    //     | ((act: RequestChangedValueByListAct, input: ControlInput) => StringOrList);
+    // confirmValue?: StringOrList | ((act: ConfirmValueAct<any>, input: ControlInput) => StringOrList);
+    // valueConfirmed?: StringOrList | ((act: ValueConfirmedAct<any>, input: ControlInput) => StringOrList);
+    // valueDisconfirmed?:
+    //     | StringOrList
+    //     | ((act: ValueDisconfirmedAct<any>, input: ControlInput) => StringOrList);
 }
+
+//Strong types for all the components of props.. makes it possible to type all the utility
+//methods correctly.
+
+//Note: we pass control to make it easier for lambda-syntax props (as 'this' isn't wired
+//correctly for lambda-style props)
+//TODO: replicate this pattern elsewhere.
+export type AplContent = { document: any; dataSource: any };
+export type AplContentFunc = (control: QuestionnaireControl, input: ControlInput) => AplContent;
+export type AplPropNewStyle = AplContent | AplContentFunc;
 
 /**
  * Props associated with the APL produced by QuestionnaireControl.
@@ -278,10 +277,18 @@ export class QuestionnaireControlAPLProps {
      */
     enabled?: boolean | ((input: ControlInput) => boolean);
 
-    // TODO js docs
-    requestValue?: ControlAPL<RequestValueByListAct, QuestionnaireControlState>;
-    requestChangedValue?: ControlAPL<RequestChangedValueByListAct, QuestionnaireControlState>;
+    askOneQuestionAct: AplPropNewStyle;
+
+    // requestValue?: AplPropNewStyle;
+    // requestChangedValue?: AplPropNewStyle;
 }
+
+export type QuestionnaireUserAnswers = {
+    [index: string]: {
+        answerId: string;
+        atRiskOfMisunderstanding: boolean;
+    };
+};
 
 /**
  * State tracked by a QuestionnaireControl.
@@ -290,17 +297,15 @@ export class QuestionnaireControlState implements ControlState {
     /**
      * The answers as a map of (questionId, answerId) pairs.
      */
-    value: {
-        [index: string]: {
-            answerId: string;
-            atRiskOfMisunderstanding: boolean;
-        };
-    };
+    value: QuestionnaireUserAnswers;
 
     /**
      * Tracks the most recent initiative action.
      */
-    activeInitiativeAct?: InitiativeAct;
+    activeInitiative?: {
+        actName: string;
+        [index: string]: any; // TODO: tighten up types.
+    };
 
     /**
      * Which questionId is active, aka in focus.
@@ -323,7 +328,8 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     state: QuestionnaireControlState = new QuestionnaireControlState();
 
     private rawProps: QuestionnaireControlProps;
-    private props: DeepRequired<QuestionnaireControlProps>;
+    props: DeepRequired<QuestionnaireControlProps>;
+
     //private handleFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
     private userAct?: UserAct<QuestionnaireControl>;
     private initiativeFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
@@ -332,6 +338,7 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
         super(props.id);
         this.rawProps = props;
         this.props = QuestionnaireControl.mergeWithDefaultProps(props);
+        this.state.value = {};
     }
 
     /**
@@ -344,8 +351,10 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
             id: 'dummy',
             required: true,
             answerConfirmationRequired: false,
-            questionnaireContent: { questionIds: [], answerIds: [] },
-            validation: () => true,
+            questionnaireContent: { questions: [], choices: [] },
+            completion: () => {
+                return { reasonCode: 'todo' };
+            }, //TODO: implement default of allQuestionsAnswered.
             interactionModel: {
                 actions: {
                     set: [$.Action.Set, $.Action.Select],
@@ -354,62 +363,73 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
                 targets: [$.Target.Choice, $.Target.It],
             },
             prompts: {
-                confirmValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_PROMPT_CONFIRM_VALUE', { value: act.payload.value }),
-                valueConfirmed: i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_AFFIRMED'),
-                valueDisconfirmed: i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_DISAFFIRMED'),
-                valueSet: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_SET', { value: act.payload.value }),
-                valueChanged: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_CHANGED', { value: act.payload.value }),
-                invalidValue: (act) => {
-                    if (act.payload.renderedReason !== undefined) {
-                        return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_INVALID_VALUE_WITH_REASON', {
-                            value: act.payload.value,
-                            reason: act.payload.renderedReason,
-                        });
-                    }
-                    return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                askOneQuestionAct: (act, control, input) => {
+                    const questionId = act.payload.focusQuestionId;
+                    const questionText = control.questionById(questionId, input);
+                    return questionText.text ?? questionText.id;
                 },
-                unusableInputValue: (act) => i18next.t('LIST_CONTROL_DEFAULT_PROMPT_UNUSABLE_INPUT_VALUE'),
-                requestValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
-                    }),
-                requestChangedValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_PROMPT_REQUEST_CHANGED_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
-                    }),
+
+                // confirmValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_CONFIRM_VALUE', { value: act.payload.value }),
+                // valueConfirmed: i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_AFFIRMED'),
+                // valueDisconfirmed: i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_DISAFFIRMED'),
+                // valueSet: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_SET', { value: act.payload.value }),
+                // valueChanged: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_VALUE_CHANGED', { value: act.payload.value }),
+                // invalidValue: (act) => {
+                //     if (act.payload.renderedReason !== undefined) {
+                //         return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_INVALID_VALUE_WITH_REASON', {
+                //             value: act.payload.value,
+                //             reason: act.payload.renderedReason,
+                //         });
+                //     }
+                //     return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                // },
+                // unusableInputValue: (act) => i18next.t('LIST_CONTROL_DEFAULT_PROMPT_UNUSABLE_INPUT_VALUE'),
+                // requestValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE', {
+                //         suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
+                //     }),
+                // requestChangedValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_REQUEST_CHANGED_VALUE', {
+                //         suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
+                //     }),
             },
             reprompts: {
-                confirmValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_CONFIRM_VALUE', { value: act.payload.value }),
-                valueConfirmed: i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED'),
-                valueDisconfirmed: i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_DISAFFIRMED'),
-                valueSet: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_SET', { value: act.payload.value }),
-                valueChanged: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CHANGED', { value: act.payload.value }),
-                invalidValue: (act) => {
-                    if (act.payload.renderedReason !== undefined) {
-                        return i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_INVALID_VALUE_WITH_REASON', {
-                            value: act.payload.value,
-                            reason: act.payload.renderedReason,
-                        });
-                    }
-                    return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                askOneQuestionAct: (act, control, input) => {
+                    const questionId = act.payload.focusQuestionId;
+                    const questionText = control.questionById(questionId, input);
+                    return questionText.text ?? questionText.id;
                 },
-                unusableInputValue: (act) => i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_UNUSABLE_INPUT_VALUE'),
-                requestValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
-                    }),
-                requestChangedValue: (act) =>
-                    i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_CHANGED_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
-                    }),
+                // confirmValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_CONFIRM_VALUE', { value: act.payload.value }),
+                // valueConfirmed: i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED'),
+                // valueDisconfirmed: i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_DISAFFIRMED'),
+                // valueSet: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_SET', { value: act.payload.value }),
+                // valueChanged: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CHANGED', { value: act.payload.value }),
+                // invalidValue: (act) => {
+                //     if (act.payload.renderedReason !== undefined) {
+                //         return i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_INVALID_VALUE_WITH_REASON', {
+                //             value: act.payload.value,
+                //             reason: act.payload.renderedReason,
+                //         });
+                //     }
+                //     return i18next.t('LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                // },
+                // unusableInputValue: (act) => i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_UNUSABLE_INPUT_VALUE'),
+                // requestValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_VALUE', {
+                //         suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
+                //     }),
+                // requestChangedValue: (act) =>
+                //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_CHANGED_VALUE', {
+                //         suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
+                //     }),
             },
-            apl: QuestionnaireControlAPLBuiltIns.ScrollingLineItems,
+            apl: QuestionnaireControlAPLBuiltIns.Default,
             inputMapperFuncs: [],
         };
 
@@ -759,11 +779,13 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
      */
     clear() {
         this.state = new QuestionnaireControlState();
+        this.state.value = {};
     }
 
     // tsDoc - see Control
     canTakeInitiative(input: ControlInput): boolean {
-        return false;
+        return this.wantsToAskLineItemQuestion(input);
+
         // return (
         //     this.wantsToConfirmValue(input) ||
         //     this.wantsToFixInvalidValue(input) ||
@@ -811,17 +833,17 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     //     this.validateAndAddActs(input, resultBuilder, $.Action.Change);
     // }
 
-    // private wantsToElicitValue(input: ControlInput): boolean {
-    //     if (this.state.value === undefined && this.evaluateBooleanProp(this.props.required, input)) {
-    //         this.initiativeFunc = this.elicitValue;
-    //         return true;
-    //     }
-    //     return false;
-    // }
+    private wantsToAskLineItemQuestion(input: ControlInput): boolean {
+        // if we haven't started and required=false, then don't start.
+        if (this.state.value === {} && this.evaluateBooleanProp(this.props.required, input) === false) {
+            return false;
+        }
 
-    // private elicitValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     this.askElicitationQuestion(input, resultBuilder, $.Action.Set);
-    // }
+        //TODO: evaluate completion prop.
+
+        this.initiativeFunc = this.askElicitationQuestion;
+        return true;
+    }
 
     // validateAndAddActs(
     //     input: ControlInput,
@@ -861,58 +883,53 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     //     return;
     // }
 
-    private validate(input: ControlInput): true | ValidationResult {
-        const listOfValidationFunc: QuestionnaireCompleteFunction[] =
-            typeof this.props.validation === 'function' ? [this.props.validation] : this.props.validation;
-        for (const validationFunction of listOfValidationFunc) {
-            const validationResult: true | ValidationResult = validationFunction(this.state, input);
-            if (validationResult !== true) {
-                log.debug(
-                    `QuestionnaireControl.validate(): validation failed. Reason: ${JSON.stringify(
-                        validationResult,
-                        null,
-                        2,
-                    )}.`,
-                );
-                return validationResult;
-            }
-        }
-        return true;
+    // private validate(input: ControlInput): true | ValidationResult {
+    //     const listOfValidationFunc: QuestionnaireCompleteFunction[] =
+    //         typeof this.props.validation === 'function' ? [this.props.validation] : this.props.validation;
+    //     for (const validationFunction of listOfValidationFunc) {
+    //         const validationResult: true | ValidationResult = validationFunction(this.state, input);
+    //         if (validationResult !== true) {
+    //             log.debug(
+    //                 `QuestionnaireControl.validate(): validation failed. Reason: ${JSON.stringify(
+    //                     validationResult,
+    //                     null,
+    //                     2,
+    //                 )}.`,
+    //             );
+    //             return validationResult;
+    //         }
+    //     }
+    //     return true;
+    // }
+
+    /**
+     * Evaluate the questionnaireContent prop
+     */
+    public evaluateQuestionnaireContentProp(input: ControlInput): QuestionnaireContent {
+        const propValue = this.props.questionnaireContent;
+        return typeof propValue === 'function' ? (propValue as any).call(this, input) : propValue;
     }
 
-    // private askElicitationQuestion(
-    //     input: ControlInput,
-    //     resultBuilder: ControlResultBuilder,
-    //     elicitationAction: string,
-    // ) {
-    //     this.state.elicitationAction = elicitationAction;
-    //     const allChoices = this.getChoicesList(input);
-    //     if (allChoices === null) {
-    //         throw new Error('QuestionnaireControl.listItemIDs is null');
-    //     }
+    private evaluateAPLPropNewStyle(prop: AplPropNewStyle, input: ControlInput): AplContent {
+        return typeof prop === 'function' ? (prop as AplContentFunc).call(this, this, input) : prop;
+    }
 
-    //     const choicesFromActivePage = this.getChoicesFromActivePage(allChoices);
-    //     switch (elicitationAction) {
-    //         case $.Action.Set:
-    //             this.addInitiativeAct(
-    //                 new RequestValueByListAct(this, { choicesFromActivePage, allChoices }),
-    //                 resultBuilder,
-    //             );
-    //             return;
-    //         case $.Action.Change:
-    //             this.addInitiativeAct(
-    //                 new RequestChangedValueByListAct(this, {
-    //                     currentValue: this.state.value!,
-    //                     choicesFromActivePage,
-    //                     allChoices,
-    //                 }),
-    //                 resultBuilder,
-    //             );
-    //             return;
-    //         default:
-    //             throw new Error(`Unhandled. Unknown elicitationAction: ${elicitationAction}`);
-    //     }
-    // }
+    private askElicitationQuestion(input: ControlInput, resultBuilder: ControlResultBuilder) {
+        const content = this.evaluateQuestionnaireContentProp(input);
+        if (content === null) {
+            throw new Error('QuestionnaireControl.questionnaireContent is null');
+        }
+
+        const initiativeAct = new AskOneQuestionAct(this, {
+            questionnaireContent: content,
+            currentAnswers: this.state.value,
+            focusQuestionId: 'cough',
+        });
+        resultBuilder.addAct(initiativeAct);
+
+        this.state.activeInitiative = { actName: initiativeAct.constructor.name };
+        return;
+    }
 
     // addInitiativeAct(initiativeAct: InitiativeAct, resultBuilder: ControlResultBuilder) {
     //     this.state.activeInitiativeActName = initiativeAct.constructor.name;
@@ -922,8 +939,8 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     // tsDoc - see ControlStateDiagramming
     stringifyStateForDiagram(): string {
         let text = ''; // TODO:Maybe: some representation of the answers?
-        if (this.state.activeInitiativeAct !== undefined) {
-            text += `[${this.state.activeInitiativeAct}]`;
+        if (this.state.activeInitiative !== undefined) {
+            text += `[${this.state.activeInitiative.actName}]`;
         }
         return text;
     }
@@ -951,9 +968,12 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
 
     // tsDoc - see Control
     renderAct(act: SystemAct, input: ControlInput, builder: ControlResponseBuilder): void {
-        if (act instanceof RequestValueByListAct) {
-            const prompt = this.evaluatePromptProp(act, this.props.prompts.requestValue, input);
-            const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestValue, input);
+        if (act instanceof AskOneQuestionAct) {
+            // const prompt = this.evaluatePromptProp(act, this.props.prompts.requestValue, input);
+            // const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestValue, input);
+
+            const prompt = 'hi';
+            const reprompt = 'hi';
 
             builder.addPromptFragment(this.evaluatePromptProp(act, prompt, input));
             builder.addRepromptFragment(this.evaluatePromptProp(act, reprompt, input));
@@ -962,63 +982,64 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
                 this.evaluateBooleanProp(this.props.apl.enabled, input) === true &&
                 getSupportedInterfaces(input.handlerInput.requestEnvelope)['Alexa.Presentation.APL']
             ) {
-                const document = this.evaluateAPLProp(act, this.props.apl.requestValue.document);
-                const dataSource = this.evaluateAPLProp(act, this.props.apl.requestValue.dataSource);
-                builder.addAPLRenderDocumentDirective('Token', document, dataSource);
+                const renderedAPL = this.evaluateAPLPropNewStyle(this.props.apl.askOneQuestionAct, input);
+                builder.addAPLRenderDocumentDirective(this.id, renderedAPL.document, renderedAPL.dataSource);
             }
-        } else if (act instanceof RequestChangedValueByListAct) {
-            const prompt = this.evaluatePromptProp(act, this.props.prompts.requestChangedValue, input);
-            const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestChangedValue, input);
+        }
+        // } else if (act instanceof RequestChangedValueByListAct) {
+        //     const prompt = this.evaluatePromptProp(act, this.props.prompts.requestChangedValue, input);
+        //     const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestChangedValue, input);
 
-            builder.addPromptFragment(this.evaluatePromptProp(act, prompt, input));
-            builder.addRepromptFragment(this.evaluatePromptProp(act, reprompt, input));
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, prompt, input));
+        //     builder.addRepromptFragment(this.evaluatePromptProp(act, reprompt, input));
 
-            if (
-                this.evaluateBooleanProp(this.props.apl.enabled, input) === true &&
-                getSupportedInterfaces(input.handlerInput.requestEnvelope)['Alexa.Presentation.APL']
-            ) {
-                const document = this.evaluateAPLProp(act, this.props.apl.requestChangedValue.document);
-                const dataSource = this.evaluateAPLProp(act, this.props.apl.requestChangedValue.dataSource);
-                builder.addAPLRenderDocumentDirective('Token', document, dataSource);
-            }
-        } else if (act instanceof UnusableInputValueAct) {
-            builder.addPromptFragment(
-                this.evaluatePromptProp(act, this.props.prompts.unusableInputValue, input),
-            );
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.unusableInputValue, input),
-            );
-        } else if (act instanceof InvalidValueAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.invalidValue, input));
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.invalidValue, input),
-            );
-        } else if (act instanceof ValueSetAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueSet, input));
-            builder.addRepromptFragment(this.evaluatePromptProp(act, this.props.reprompts.valueSet, input));
-        } else if (act instanceof ValueChangedAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueChanged, input));
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.valueChanged, input),
-            );
-        } else if (act instanceof ConfirmValueAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.confirmValue, input));
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.confirmValue, input),
-            );
-        } else if (act instanceof ValueConfirmedAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueConfirmed, input));
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.valueConfirmed, input),
-            );
-        } else if (act instanceof ValueDisconfirmedAct) {
-            builder.addPromptFragment(
-                this.evaluatePromptProp(act, this.props.prompts.valueDisconfirmed, input),
-            );
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.valueDisconfirmed, input),
-            );
-        } else {
+        //     if (
+        //         this.evaluateBooleanProp(this.props.apl.enabled, input) === true &&
+        //         getSupportedInterfaces(input.handlerInput.requestEnvelope)['Alexa.Presentation.APL']
+        //     ) {
+        //         const document = this.evaluateAPLProp(act, this.props.apl.requestChangedValue.document);
+        //         const dataSource = this.evaluateAPLProp(act, this.props.apl.requestChangedValue.dataSource);
+        //         builder.addAPLRenderDocumentDirective('Token', document, dataSource);
+        //     }
+        // } else if (act instanceof UnusableInputValueAct) {
+        //     builder.addPromptFragment(
+        //         this.evaluatePromptProp(act, this.props.prompts.unusableInputValue, input),
+        //     );
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.unusableInputValue, input),
+        //     );
+        // } else if (act instanceof InvalidValueAct) {
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.invalidValue, input));
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.invalidValue, input),
+        //     );
+        // } else if (act instanceof ValueSetAct) {
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueSet, input));
+        //     builder.addRepromptFragment(this.evaluatePromptProp(act, this.props.reprompts.valueSet, input));
+        // } else if (act instanceof ValueChangedAct) {
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueChanged, input));
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.valueChanged, input),
+        //     );
+        // } else if (act instanceof ConfirmValueAct) {
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.confirmValue, input));
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.confirmValue, input),
+        //     );
+        // } else if (act instanceof ValueConfirmedAct) {
+        //     builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueConfirmed, input));
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.valueConfirmed, input),
+        //     );
+        // } else if (act instanceof ValueDisconfirmedAct) {
+        //     builder.addPromptFragment(
+        //         this.evaluatePromptProp(act, this.props.prompts.valueDisconfirmed, input),
+        //     );
+        //     builder.addRepromptFragment(
+        //         this.evaluatePromptProp(act, this.props.reprompts.valueDisconfirmed, input),
+        //     );
+        //}
+        else {
             this.throwUnhandledActError(act);
         }
     }
@@ -1064,9 +1085,22 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
         const confirmationRequired = this.evaluateBooleanProp(this.props.answerConfirmationRequired, input);
 
         if (confirmationRequired && answerAct.answer.atRiskOfMisunderstanding) {
-            resultBuilder.addAct(new ConfirmQuestionnaireAnswer());
-        } else {
-            if (this.canTakeInitiative(input)) await this.takeInitiative(input, resultBuilder);
+            resultBuilder.addAct(new ConfirmQuestionnaireAnswer(this));
         }
+    }
+
+    questionById(questionId: string, input: ControlInput): Item {
+        const questionnaireContent = this.evaluateQuestionnaireContentProp(input);
+        const questions = questionnaireContent.questions;
+        const question = questions.find((x) => x.id === questionId);
+
+        assert(question !== undefined, `Question not found. id=${questionId}`);
+        return question;
+    }
+
+    choiceIndexById(content: QuestionnaireContent, answerId: string): number {
+        const idx = content.choices.findIndex((x) => x.id === answerId);
+        assert(idx >= 0, `Not found. answerId=${answerId}`);
+        return idx;
     }
 }

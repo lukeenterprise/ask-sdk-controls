@@ -1,3 +1,4 @@
+import { expect } from 'chai';
 /*
  * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * Licensed under the Apache License, Version 2.0 (the "License").
@@ -11,14 +12,7 @@
  * permissions and limitations under the License.
  */
 import { suite, test } from 'mocha';
-import {
-    ControlHandler,
-    SingleValueControlIntent,
-    SkillInvoker,
-    TestInput,
-    testTurn,
-    waitForDebugger,
-} from '../../../src';
+import { ControlHandler, SkillInvoker, TestInput, testTurn, waitForDebugger } from '../../../src';
 import { MultipleLists } from '../src';
 
 waitForDebugger();
@@ -27,25 +21,23 @@ suite.only('all', () => {
     test('Questionnaire Demo', async () => {
         const requestHandler = new ControlHandler(new MultipleLists.DemoControlManager());
         const invoker = new SkillInvoker(requestHandler);
-        await testTurn(
-            invoker,
-            'U: __',
-            TestInput.launchRequest(),
-            'A: Welcome. What is your selection? Some suggestions are cat, dog or rabbit.',
-        );
+        const response = await testTurn(invoker, 'U: __', TestInput.launchRequest(), 'A: Welcome. hi');
 
-        await testTurn(
-            invoker,
-            'U: cat',
-            TestInput.of(SingleValueControlIntent.of('PetSpecies', { PetSpecies: 'cat' })),
-            'A: OK, cat. What is your selection? Some suggestions are labrador or persian.',
-        );
+        expect(response.directive).lengthOf(1);
+        expect(response.directive![0].type).equal('Alexa.Presentation.APL.RenderDocument'); // APL present.
 
-        await testTurn(
-            invoker,
-            'U: cat',
-            TestInput.of(SingleValueControlIntent.of('PetBreed', { PetBreed: 'persian' })),
-            'A: OK, persian. What is your selection? Some suggestions are adopt, foster or sponsor.',
-        );
+        // await testTurn(
+        //     invoker,
+        //     'U: cat',
+        //     TestInput.of(SingleValueControlIntent.of('PetSpecies', { PetSpecies: 'cat' })),
+        //     'A: OK, cat. What is your selection? Some suggestions are labrador or persian.',
+        // );
+
+        // await testTurn(
+        //     invoker,
+        //     'U: cat',
+        //     TestInput.of(SingleValueControlIntent.of('PetBreed', { PetBreed: 'persian' })),
+        //     'A: OK, persian. What is your selection? Some suggestions are adopt, foster or sponsor.',
+        // );
     });
 });

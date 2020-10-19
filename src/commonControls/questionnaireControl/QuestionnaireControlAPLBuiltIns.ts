@@ -1,7 +1,7 @@
-import i18next from 'i18next';
-import { PresentQuestionnaireAndAskOneQuestionAct, RequestChangedValueByListAct } from '../..';
+import { ControlInput } from '../../controls/ControlInput';
 import { DeepRequired } from '../../utils/DeepRequired';
-import { QuestionnaireControlAPLProps } from './QuestionnaireControl';
+import { QuestionnaireControl, QuestionnaireControlAPLProps } from './QuestionnaireControl';
+import { QuestionnaireContent } from './QuestionnaireControlStructs';
 
 /*
  * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
@@ -36,18 +36,24 @@ export namespace QuestionnaireControlAPLBuiltIns {
      * For information about the TextListTemplate, see following doc:
      * https://developer.amazon.com/en-US/docs/alexa/alexa-presentation-language/apl-alexa-text-list-layout.html
      */
-    export const ScrollingLineItems: DeepRequired<QuestionnaireControlAPLProps> = {
+    export const Default: DeepRequired<QuestionnaireControlAPLProps> = {
         enabled: true,
-        requestValue: {
-            document: questionnaireDocumentGenerator(),
-            dataSource: questionnaireDataSourceGenerator((choiceId) => choiceId),
-            customHandlingFuncs: [],
+
+        askOneQuestionAct: (control: QuestionnaireControl, input: ControlInput) => {
+            const content = control.evaluateQuestionnaireContentProp(input);
+            return {
+                document: questionnaireDocumentGenerator(content),
+                dataSource: questionnaireDataSourceGenerator(content, control),
+            };
         },
-        requestChangedValue: {
-            document: questionnaireDocumentGenerator(),
-            dataSource: questionnaireDataSourceGenerator((choiceId) => choiceId),
-            customHandlingFuncs: [],
-        },
+        // requestValue: {
+        //     document: questionnaireDocumentGenerator(),
+        //     dataSource: questionnaireDataSourceGenerator((choiceId) => choiceId),
+        // },
+        // requestChangedValue: {
+        //     document: questionnaireDocumentGenerator(),
+        //     dataSource: questionnaireDataSourceGenerator((choiceId) => choiceId),
+        // },
     };
 
     /**
@@ -58,25 +64,134 @@ export namespace QuestionnaireControlAPLBuiltIns {
      * https://developer.amazon.com/en-US/docs/alexa/alexa-presentation-language/apl-data-source.html
      */
     export function questionnaireDataSourceGenerator(
-        slotIdMapper: { [index: string]: string } | ((choiceId: string) => string),
+        content: QuestionnaireContent,
+        control: QuestionnaireControl,
     ) {
-        return (act: PresentQuestionnaireAndAskOneQuestionAct) => {
-            const itemsArray: QuestionnaireChoice[] = [];
-            for (const choice of act.allChoices) {
-                itemsArray.push({
-                    primaryText:
-                        typeof slotIdMapper === 'function' ? slotIdMapper(choice) : slotIdMapper[choice],
-                });
-            }
+        // return (act: PresentQuestionnaireAndAskOneQuestionAct) => {
+        //     const itemsArray: QuestionnaireChoice[] = [];
+        //     for (const choice of act.allChoices) {
+        //         itemsArray.push({
+        //             primaryText:
+        //                 typeof slotIdMapper === 'function' ? slotIdMapper(choice) : slotIdMapper[choice],
+        //         });
+        //     }
 
-            return {
-                textListData: {
-                    controlId: act.control.id,
-                    headerTitle: i18next.t('LIST_CONTROL_DEFAULT_APL_HEADER_TITLE'),
-                    items: itemsArray,
+        //     return {
+        //         textListData: {
+        //             controlId: act.control.id,
+        //             headerTitle: i18next.t('LIST_CONTROL_DEFAULT_APL_HEADER_TITLE'),
+        //             items: itemsArray,
+        //         },
+        //     };
+        // };
+
+        const questions = [];
+        for (const [idx, question] of content.questions.entries()) {
+            const currentChoiceIndex = Object.keys(control.state.value).includes(question.id)
+                ? control.choiceIndexById(content, control.state.value[question.id].answerId)
+                : -1;
+
+            questions.push({
+                idx: `${idx < 10 ? '&#32;&#32;' : ''}${idx}.`, // add some spaces to small number for alignment.
+                type: 'question',
+                text: question.text ?? question.id,
+                selectedBtnIndex: currentChoiceIndex,
+            });
+        }
+
+        return {
+            wrapper: {
+                metadata: {
+                    title: 'What symptoms do you have?',
+                    focusIndex: control.state.questionInFocus,
                 },
-            };
+                itemData: questions,
+            },
         };
+
+        // // example:
+        // {
+        //     wrapper: {
+        //         metadata: {
+        //             title: 'What symptoms do you have?',
+        //             focusIndex: 9,
+        //         },
+        //         itemData: [
+        //             {
+        //                 idx: '&#32;&#32;1.',
+        //                 type: 'question',
+        //                 text: 'Shortness of breath',
+        //                 selectedBtnIndex: 0,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;2.',
+        //                 type: 'question',
+        //                 text: 'Symptom2',
+        //                 selectedBtnIndex: 1,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;3.',
+        //                 type: 'question',
+        //                 text: 'Symptom3',
+        //                 selectedBtnIndex: 2,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;4.',
+        //                 type: 'question',
+        //                 text: 'Symptom4',
+        //                 selectedBtnIndex: 1,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;5.',
+        //                 type: 'question',
+        //                 text: 'Symptom5',
+        //                 selectedBtnIndex: 0,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;6.',
+        //                 type: 'question',
+        //                 text: 'Symptom6',
+        //                 selectedBtnIndex: 1,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;7.',
+        //                 type: 'question',
+        //                 text: 'Symptom7',
+        //                 selectedBtnIndex: 2,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;8.',
+        //                 type: 'question',
+        //                 text: 'Symptom8',
+        //                 selectedBtnIndex: 1,
+        //             },
+        //             {
+        //                 idx: '&#32;&#32;9.',
+        //                 type: 'question',
+        //                 text: 'Symptom9',
+        //                 selectedBtnIndex: 1,
+        //             },
+        //             {
+        //                 idx: '10.',
+        //                 type: 'question',
+        //                 text: 'Symptom10',
+        //                 selectedBtnIndex: 0,
+        //             },
+        //             {
+        //                 idx: '11.',
+        //                 type: 'question',
+        //                 text: 'Symptom11',
+        //                 selectedBtnIndex: 0,
+        //             },
+        //             {
+        //                 idx: '12.',
+        //                 type: 'question',
+        //                 text: 'Symptom12',
+        //                 selectedBtnIndex: 0,
+        //             },
+        //         ],
+        //     },
+        // };
     }
 
     /**
@@ -84,7 +199,17 @@ export namespace QuestionnaireControlAPLBuiltIns {
      *
      * Default: Questionnaire items shown as line items with radio buttons for selecting answer
      */
-    export function questionnaireDocumentGenerator() {
+    export function questionnaireDocumentGenerator(content: QuestionnaireContent) {
+        const radioButtons = [];
+        for (const [idx, choice] of content.choices.entries()) {
+            radioButtons.push({
+                type: 'ChoiceRadio',
+                text: choice.text ?? choice.id,
+                index: idx,
+                textColor: '#00FF00',
+            });
+        }
+
         return {
             type: 'APL',
             version: '1.4',
@@ -320,7 +445,7 @@ export namespace QuestionnaireControlAPLBuiltIns {
                         ],
                     },
                 },
-                QuestionRadio: {
+                ChoiceRadio: {
                     parameters: ['index', 'color'],
                     item: {
                         type: 'AlexaRadioButton',
@@ -363,26 +488,29 @@ export namespace QuestionnaireControlAPLBuiltIns {
                                 type: 'Container',
                                 direction: 'row',
                                 spacing: '50px',
-                                items: [
-                                    {
-                                        type: 'QuestionRadio',
-                                        text: '✔',
-                                        index: 0,
-                                        textColor: '#00FF00',
-                                    },
-                                    {
-                                        type: 'QuestionRadio',
-                                        text: '✖',
-                                        index: 1,
-                                        color: '#FF0000',
-                                    },
-                                    {
-                                        type: 'QuestionRadio',
-                                        text: '?',
-                                        index: 2,
-                                        color: '#555555',
-                                    },
-                                ],
+                                items: radioButtons, //todo: take from dataSource rather than dynamically creating? is there official way to to instantiate n items from data?
+
+                                // Example of expected style.
+                                // items: [
+                                //     {
+                                //         type: 'ChoiceRadio',
+                                //         text: '✔',
+                                //         index: 0,
+                                //         textColor: '#00FF00',
+                                //     },
+                                //     {
+                                //         type: 'ChoiceRadio',
+                                //         text: '✖',
+                                //         index: 1,
+                                //         color: '#FF0000',
+                                //     },
+                                //     {
+                                //         type: 'ChoiceRadio',
+                                //         text: '?',
+                                //         index: 2,
+                                //         color: '#555555',
+                                //     },
+                                // ],
                             },
                             {
                                 paddingLeft: '50px',
@@ -410,7 +538,7 @@ export namespace QuestionnaireControlAPLBuiltIns {
                             },
                             {
                                 type: 'ScrollView',
-                                height: '100vh',
+                                height: '70vh',
                                 width: '100vw',
                                 checked: true,
                                 position: 'relative',
@@ -425,7 +553,7 @@ export namespace QuestionnaireControlAPLBuiltIns {
                                 item: [
                                     {
                                         type: 'Sequence',
-                                        height: '100vh',
+                                        height: '70vh',
                                         width: '100vw',
                                         id: 'textToUpdate',
                                         paddingLeft: '@marginHorizontal',

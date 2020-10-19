@@ -78,13 +78,3 @@ export interface LiteralContentPayload {
     promptFragment: string;
     repromptFragment?: string;
 }
-
-export interface PresentQuestionnaireAndAskOneQuestionPayload {
-    // business data
-    questionnaireID: string; // todo
-    currentAnswers: number[][]; // todo
-
-    // pre-rendered representations
-    renderedAPL: QuestionnaireControlAPLContent;
-    renderedPrompt: string;
-}
