@@ -1,6 +1,31 @@
+import { ControlInput } from '../../controls/ControlInput';
+import { QuestionnaireControl } from './QuestionnaireControl';
+import { AskOneQuestionAct } from './QuestionnaireControlSystemActs';
+
+export interface Item {
+    /**
+     * Identifier
+     */
+    id: string;
+
+    /**
+     * rendered form.. perhaps should be split into prompt/apl forms.
+     */
+    text?: string;
+}
+
 export interface QuestionnaireContent {
-    questionIds: string[];
-    answerIds: string[];
+    /**
+     * Questions that form the questionnaire.
+     */
+    questions: Item[];
+
+    /**
+     * Choices that the user can choose from.
+     *
+     * The possible answers must be the same for all questions.
+     */
+    choices: Item[];
 }
 
 /**
