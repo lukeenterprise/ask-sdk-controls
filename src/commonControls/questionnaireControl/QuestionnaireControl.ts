@@ -29,7 +29,7 @@ import { assert } from '../../utils/AssertionUtils';
 import { StringOrList } from '../../utils/BasicTypes';
 import { DeepRequired } from '../../utils/DeepRequired';
 import { QuestionnaireControlBuiltIns } from './QuestionnaireControlBuiltIns';
-import { Item, QuestionnaireContent } from './QuestionnaireControlStructs';
+import { Handler, Item, QuestionnaireContent } from './QuestionnaireControlStructs';
 import { AskOneQuestionAct, ConfirmQuestionnaireAnswer } from './QuestionnaireControlSystemActs';
 import { DirectAnswerAct, UserAct } from './QuestionnaireUserActs';
 
@@ -358,8 +358,7 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     private rawProps: QuestionnaireControlProps;
     props: DeepRequired<QuestionnaireControlProps>;
 
-    //private handleFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
-    private userAct?: UserAct<QuestionnaireControl>;
+    private handleFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
     private initiativeFunc?: (input: ControlInput, resultBuilder: ControlResultBuilder) => void;
 
     constructor(props: QuestionnaireControlProps) {
@@ -483,9 +482,32 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
         return undefined;
     }
 
+
+    handlers: Handler[] = [
+        {   
+            name: 'DirectAnswer',
+            canHandle: this.isDirectAnswer,
+            handle: this.handleDirectAnswer
+        }
+    ]
+
     // tsDoc - see Control
     async canHandle(input: ControlInput): Promise<boolean> {
-        const userAct = await this.tryInterpretInputAsUserAct(input);
+        
+        let matches = []
+        for (const handler of this.handlers) {
+            if(handler.canHandle(input)){
+                matches.push(handler)
+            }
+        }
+
+        if(matches.length > 1){
+            log.warn(`More than one handler matched: ${JSON.stringify(matches.map(x=>x.name))}`);
+        }
+
+        if(matches.length === 1){
+            this.handleFunc = matches[0].handle;
+        }
 
         log.info(
             userAct !== undefined

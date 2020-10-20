@@ -17,7 +17,7 @@ import { MultipleLists } from '../src';
 
 waitForDebugger();
 
-suite.only('all', () => {
+suite('all', () => {
     test('Questionnaire Demo', async () => {
         const requestHandler = new ControlHandler(new MultipleLists.DemoControlManager());
         const invoker = new SkillInvoker(requestHandler);
