@@ -1,8 +1,14 @@
 import { ControlInput } from '../../controls/ControlInput';
+import { ControlResultBuilder } from '../../controls/ControlResult';
 import { QuestionnaireControl } from './QuestionnaireControl';
 import { AskOneQuestionAct } from './QuestionnaireControlSystemActs';
 
 
+export interface Handler {
+    name: string
+    canHandle: (input: ControlInput) => boolean
+    handle: (input: ControlInput, resultBuilder: ControlResultBuilder) => void
+}
 
 
 export interface Item {

@@ -107,7 +107,7 @@ suite('ControlInteractionModel Generator tests', () => {
             expect(interactionModel).deep.equal(expectedInteractionModel);
         });
 
-        test('i18nOverride should work as expected', () => {
+        test.only('i18nOverride should work as expected', () => {
             sinon.stub(Logger.prototype, 'warn');
             const targetInFR = {
                 name: SharedSlotType.TARGET,
