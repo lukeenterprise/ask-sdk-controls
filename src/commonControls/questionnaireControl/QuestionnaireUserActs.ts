@@ -3,21 +3,26 @@ import { ControlResultBuilder } from '../../controls/ControlResult';
 import { QuestionnaireControl } from './QuestionnaireControl';
 import { QuestionnaireLineItemAnswer } from './QuestionnaireControlStructs';
 
-export interface UserAct<Control> {
-    process(
-        control: QuestionnaireControl,
-        input: ControlInput,
-        resultBuilder: ControlResultBuilder,
-    ): void | Promise<void>;
+export interface UserAct {
+    // process(
+    //     control: QuestionnaireControl,
+    //     input: ControlInput,
+    //     resultBuilder: ControlResultBuilder,
+    // ): void | Promise<void>;
 }
 
 /**
  * The user has directly answered a question.
  * My answer to [question_a] is [answer_b]
  */
-export class DirectAnswerAct implements UserAct<QuestionnaireControl> {
+export class DirectAnswerAct implements UserAct {
     questionId: string;
     answer: QuestionnaireLineItemAnswer;
+
+    constructor(questionId: string, answer: QuestionnaireLineItemAnswer) {
+        this.questionId = questionId;
+        this.answer = answer;
+    }
 
     async process(control: QuestionnaireControl, input: ControlInput, resultBuilder: ControlResultBuilder) {
         await control.updateAnswer(this, input, resultBuilder);
