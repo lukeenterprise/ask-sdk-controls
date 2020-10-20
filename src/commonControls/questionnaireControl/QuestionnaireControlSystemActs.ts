@@ -1,7 +1,7 @@
 import { Control, ControlInput, ControlResponseBuilder } from '../..';
 import { InitiativeAct } from '../../systemActs/InitiativeActs';
 import { AplContent, QuestionnaireUserAnswers } from './QuestionnaireControl';
-import { QuestionnaireControlAPLContent } from './QuestionnaireControlAPLBuiltIns';
+import { QuestionnaireControlAPLContent } from './QuestionnaireControlBuiltIns';
 import { QuestionnaireContent } from './QuestionnaireControlStructs';
 
 export interface PresentQuestionnaireAndAskOneQuestionPayload {

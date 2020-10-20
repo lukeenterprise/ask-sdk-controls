@@ -78,3 +78,11 @@ export function falseIfGuardFailed(err: Error): false {
     }
     throw err; // otherwise rethrow
 }
+
+
+export function undefinedIfGuardFailed(err: Error): undefined {
+    if (err instanceof GuardFailed) {
+        return undefined;
+    }
+    throw err; // otherwise rethrow
+}
