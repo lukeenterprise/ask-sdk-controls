@@ -37,7 +37,27 @@ const log = new Logger('AskSdkControls:ControlManager');
  * Properties for creating a ControlManager instance.
  */
 export interface ControlManagerProps {
+    
+    /**
+     * The locale to use when looking up i18n strings.
+     */
     locale?: string;
+    
+    /**
+     * Overrides to built-in localized content and/or content for additional locales. 
+     * 
+     * Default: The defaults are defined in `src/commonControls/LanguageStrings.ts` and
+     * provides en-US strings for all the builtin controls.
+     * 
+     * Usage:
+     * - to override a default string in en-US for all instances of a built-in control,
+     *   add the override here using the same structure as shown in `LanguageStrings.ts`
+     * - to add content for a new locale, add a new block of content like 'en-US' and
+     *   configure all strings for each builtin control type that you require. Also configure
+     *   `ControlManagerProps.locale` to refer to the new locale.
+     * 
+     * TODO: finish localizing all strings, 
+     */
     i18nResources?: Resource;
 }
 
