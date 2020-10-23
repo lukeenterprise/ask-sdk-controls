@@ -169,7 +169,7 @@ export interface DateControlInteractionModelProps {
      * Default: ['builtin_date', 'builtin_it']
      *
      * Usage:
-     * - If this prop is defined, it replaces the default; it is not additive
+     * - If this prop is defined, it replaces the default; it is not additive to
      *   the defaults.  To add an additional target to the defaults, copy the
      *   defaults and amend.
      * - A control can be associated with many target-slot-values, eg ['date',

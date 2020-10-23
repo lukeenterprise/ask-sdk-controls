@@ -163,6 +163,53 @@ export const defaultI18nResources: Resource = {
                 },
             },
 
+            // Questionnaire Control Runtime
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_VALUE_SET: 'OK, {{value}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_VALUE_CHANGED: 'OK, I changed it to {{value}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE:
+                'Sorry, {{value}} is not a valid choice.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_INVALID_VALUE_WITH_REASON:
+                'Sorry, {{value}} is not a valid choice because {{reason}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_UNUSABLE_INPUT_VALUE: "Sorry, I'm not sure how to do that.",
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE:
+                'What is your selection? Some suggestions are {{suggestions}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_REQUEST_CHANGED_VALUE:
+                'What should I change it to? Some suggestions are {{suggestions}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_CONFIRM_VALUE: 'Was that {{value}}?',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_VALUE_AFFIRMED: 'Great.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_PROMPT_VALUE_DISAFFIRMED: 'My mistake.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_VALUE_SET: 'OK, {{value}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_VALUE_CHANGED: 'OK, I changed it to {{value}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_VALUE:
+                'Sorry, {{value}} is not a valid choice.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_INVALID_VALUE_WITH_REASON:
+                'Sorry, {{value}} is not a valid choice because {{reason}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_UNUSABLE_INPUT_VALUE:
+                "Sorry, I'm not sure how to do that.",
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_REQUEST_VALUE:
+                'What is your selection? Some suggestions are {{suggestions}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_REQUEST_CHANGED_VALUE:
+                'What should I change it to? Some suggestions are {{suggestions}}.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_CONFIRM_VALUE: 'Was that {{value}}?',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED: 'Great.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_REPROMPT_VALUE_DISAFFIRMED: 'My mistake.',
+            QUESTIONNAIRE_CONTROL_DEFAULT_APL_HEADER_TITLE: 'Please select...',
+            // ListControl BuildTime
+            QUESTIONNAIRE_CONTROL_DEFAULT_SLOT_VALUES_TARGET_CHOICE: {
+                id: $.Target.Choice,
+                name: {
+                    value: 'choice',
+                    synonyms: ['my choice', 'selection', 'my selection'],
+                },
+            },
+            QUESTIONNAIRE_CONTROL_DEFAULT_SLOT_VALUES_ACTION_SELECT: {
+                id: $.Action.Select,
+                name: {
+                    value: 'select',
+                    synonyms: ['select', 'choose', 'take', 'pick'],
+                },
+            },
+
             // DateRangeControl Runtime
             DATE_RANGE_CONTROL_DEFAULT_PROMPT_START_DATE_SET: 'Got it. The start date is {{value}}.',
             DATE_RANGE_CONTROL_DEFAULT_PROMPT_START_DATE_CHANGED:
@@ -393,6 +440,11 @@ export const defaultI18nResources: Resource = {
                 '{feedback} {action} {tail}', // {Yes} {review} {would be great}
                 '{feedback} {action} {target} {tail}', // {Yes} {review} {the delivery date} {please}
                 // "{action}",                           // For bare action utterances, use specific simple intents to be compatible with existing ecosystem.
+                '{target}', // {delivery date}
+                '{feedback} {target}', // {Yes}, {delivery date}'
+                '{head} {target}', // {just} {delivery date}'
+                '{target} {tail}', // {delivery date} {please}'
+
                 '{action} {target}', // {change} {start date}
                 '{head} {action}', // {just} {delete}
                 '{head} {action} {target}', // {just} {delete} {it}
@@ -539,6 +591,10 @@ export const defaultI18nResources: Resource = {
                 '{head} {action} {preposition} [[valueSlotType]] {tail}', // {I want to} {change} {to} {apples} {thanks}
                 '{head} {target} {preposition} [[valueSlotType]] {tail}', // {I need} {it} {to be} {apples} {thanks}
                 '{head} {action} {target} {preposition} [[valueSlotType]] {tail}', // {You can} {change} {it} {to be} {apples} {thanks}
+
+                // new things for questionnaire control. // TODO: integrate into main list.
+                '[[valueSlotType]] {target}', // {I rarely have} {headache}
+                '{feedback} [[valueSlotType]] {target}', // {correct} {I rarely have} {headache}
             ],
 
             // Shared Slot Type values
@@ -559,7 +615,7 @@ export const defaultI18nResources: Resource = {
                                 'yep',
                                 'yes',
                                 'ya',
-                                'yes I want',
+                                'yes I want', // TODO: consider splitting out as action=desire.
                                 'yes I need',
                                 'yes I said',
                                 "yes that's right",
@@ -586,6 +642,8 @@ export const defaultI18nResources: Resource = {
                                 'yes absolutely',
                                 'fine',
                                 'yes fine',
+                                'I have',
+                                'yes I have',
                             ],
                         },
                     },
@@ -631,6 +689,17 @@ export const defaultI18nResources: Resource = {
                                 'that was totally wrong',
                                 'that is totally wrong',
                                 'that is wrong',
+                                'I do not have',
+                                'I do not have',
+                                "I don't have",
+                                'I do not',
+                                "I don't",
+                                'no I do not',
+                                "no I don't",
+                                'no I do not have',
+                                'no I do not have',
+                                "no I don't have",
+                                "no I don't have",
                             ],
                         },
                     },
@@ -840,7 +909,21 @@ export const defaultI18nResources: Resource = {
                         id: $.Target.It,
                         name: {
                             value: 'it',
-                            synonyms: ['it', 'this', 'that'],
+                            synonyms: [
+                                'it',
+                                'this',
+                                'that',
+                                'them',
+                                'them all',
+                                'those',
+                                'all those',
+                                'most',
+                                'most all',
+                                'most all of them',
+                                'most of them',
+                                'almost all',
+                                'almost all of them',
+                            ],
                         },
                     },
                 ],

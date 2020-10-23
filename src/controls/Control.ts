@@ -46,14 +46,23 @@ export interface ControlState {
     value?: any; //TODO: make mandatory to tighten the convention.
 }
 
+export interface ControlInputHandler {
+    name: string;
+    canHandle: (this: Control, input: ControlInput) => boolean | Promise<boolean>;
+    handle: (this: Control, input: ControlInput, resultBuilder: ControlResultBuilder) => void | Promise<void>;
+}
+
+export interface ControlInitiativeHandler {
+    name: string;
+    canTakeInitiative(input: ControlInput): boolean | Promise<boolean>;
+    takeInitiative(input: ControlInput, resultBuilder: ControlResultBuilder): void | Promise<void>;
+}
+
 /**
  * Base type for the customHandling Functions of a Control
  */
 export interface ControlInputHandlingProps {
-    customHandlingFuncs?: Array<{
-        canHandle: (input: ControlInput) => boolean | Promise<boolean>;
-        handle: (input: ControlInput, resultBuilder: ControlResultBuilder) => void | Promise<void>;
-    }>;
+    customHandlingFuncs?: ControlInputHandler[];
 }
 
 /**

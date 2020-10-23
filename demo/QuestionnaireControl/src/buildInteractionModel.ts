@@ -36,74 +36,78 @@ export namespace TwoListsIM {
         .setModelConfiguration({ fallbackIntentSensitivity: { level: 'HIGH' } })
 
         .addOrMergeSlotType({
-            name: 'PetSpecies',
+            name: 'FrequencyAnswer',
             values: [
                 {
-                    id: 'cat',
+                    id: 'oftenHave',
                     name: {
-                        value: 'cat',
-                        synonyms: ['kitty', 'house cat', 'feline'],
+                        value: 'often',
+                        synonyms: [
+                            'get',
+                            'have',
+                            'suffer',
+                            'suffer from',
+                            'often', // e.g. {I} {often} {cough}
+                            'often have', // e.g. {I} {often have} {headache}
+                            'often get',
+                            'often suffer',
+                            'often suffer from',
+                            'fairly often have',
+                            'fairly often get',
+                            'fairly often suffer',
+                            'fairly often suffer from',
+                            'generally have',
+                            'generally get',
+                            'generally suffer',
+                            'generally suffer from',
+                            'most of the time I have',
+                            'most of the time I get',
+                            'most of the time I suffer',
+                            'most of the time I suffer from',
+                            'frequently',
+                            'frequently get',
+                            'frequently have',
+                            'frequently suffer',
+                            'frequently suffer from',
+                            'always',
+                            'always get',
+                            'always have',
+                            'always suffer',
+                            'always suffer from',
+                        ],
                     },
                 },
                 {
-                    id: 'dog',
+                    id: 'rarelyHave',
                     name: {
-                        value: 'dog',
-                        synonyms: ['doggie', 'mutt', 'puppy'],
-                    },
-                },
-                {
-                    id: 'rabbit',
-                    name: {
-                        value: 'rabbit',
-                        synonyms: ['bunny', 'bunny rabbit'],
-                    },
-                },
-            ],
-        })
-
-        .addOrMergeSlotType({
-            name: 'PetBreed',
-            values: [
-                {
-                    id: 'labrador',
-                    name: {
-                        value: 'labrador',
-                        synonyms: [],
-                    },
-                },
-                {
-                    id: 'persian',
-                    name: {
-                        value: 'persian',
-                        synonyms: [],
-                    },
-                },
-            ],
-        })
-
-        .addOrMergeSlotType({
-            name: 'TransactionType',
-            values: [
-                {
-                    id: 'adopt',
-                    name: {
-                        value: 'adopt',
-                        synonyms: [],
-                    },
-                },
-                {
-                    id: 'foster',
-                    name: {
-                        value: 'foster',
-                        synonyms: [],
-                    },
-                },
-                {
-                    id: 'sponsor',
-                    name: {
-                        value: 'sponsor',
-                        synonyms: [],
+                        value: 'rarely',
+                        synonyms: [
+                            "don't", // e.g. {I} {don't} {cough}
+                            "don't get", // e.g. {I} {don't get} {headaches}
+                            "don't have",
+                            "don't suffer",
+                            "don't suffer from",
+                            'rarely',
+                            'rarely get',
+                            'rarely have',
+                            'rarely suffer',
+                            'rarely suffer from',
+                            'infrequently',
+                            'infrequently get',
+                            'infrequently have',
+                            'infrequently suffer',
+                            'infrequently suffer from',
+                            'hardly ever',
+                            'hardly ever get',
+                            'hardly ever have',
+                            'hardly ever suffer',
+                            'hardly ever suffer from',
+                            'never get',
+                            'never have',
+                            'never suffer',
+                            'never suffer from',
+                            'never',
+                        ],
                     },
                 },
             ],
@@ -112,20 +116,24 @@ export namespace TwoListsIM {
         .addValuesToSlotType(
             'target',
             {
-                id: 'species',
-                name: { value: 'species', synonyms: ["type of pet"] },
+                id: 'headache',
+                name: {
+                    value: 'headache',
+                    synonyms: [
+                        'headaches',
+                        'sore head',
+                        'lots of headaches',
+                        'bad headaches',
+                        'really bad headaches',
+                    ],
+                },
             },
             {
-                id: 'petKind',
-                name: { value: 'petKind' },
-            },
-            {
-                id: 'breed',
-                name: { value: 'breed' },
-            },
-            {
-                id: 'transaction',
-                name: { value: 'transaction' },
+                id: 'cough',
+                name: {
+                    value: 'cough',
+                    synonyms: ['coughing', 'constant coughing', 'cough a lot', 'moderate cough'],
+                },
             },
         );
 }

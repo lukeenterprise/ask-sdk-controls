@@ -1,24 +1,22 @@
 import { Control, ControlInput, ControlResponseBuilder } from '../..';
 import { InitiativeAct } from '../../systemActs/InitiativeActs';
-import { AplContent, QuestionnaireUserAnswers } from './QuestionnaireControl';
-import { QuestionnaireControlAPLContent } from './QuestionnaireControlBuiltIns';
-import { QuestionnaireContent } from './QuestionnaireControlStructs';
+import { QuestionnaireUserAnswers } from './QuestionnaireControl';
+import { QuestionnaireContent, RenderedQuestionnaireContent } from './QuestionnaireControlStructs';
 
-export interface PresentQuestionnaireAndAskOneQuestionPayload {
+export interface AskQuestionPayload {
     // business data
     questionnaireContent: QuestionnaireContent;
-    currentAnswers: QuestionnaireUserAnswers;
-    focusQuestionId: string;
+    answers: QuestionnaireUserAnswers;
+    questionId: string;
 
-    // pre-rendered representations.. although helpful, perhaps it is too much?
-    // renderedQuestions: string[];
-    // renderedAnswers: string[];
+    // pre-rendered representations.
+    renderedContent: RenderedQuestionnaireContent;    
 }
 
-export class AskOneQuestionAct extends InitiativeAct {
-    payload: PresentQuestionnaireAndAskOneQuestionPayload;
+export class AskQuestionAct extends InitiativeAct {
+    payload: AskQuestionPayload;
 
-    constructor(control: Control, payload: PresentQuestionnaireAndAskOneQuestionPayload) {
+    constructor(control: Control, payload: AskQuestionPayload) {
         super(control);
         this.payload = payload;
     }

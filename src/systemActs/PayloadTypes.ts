@@ -11,8 +11,6 @@
  * permissions and limitations under the License.
  */
 
-import { QuestionnaireControlAPLContent } from '../commonControls/questionnaireControl/QuestionnaireControlBuiltIns';
-
 /**
  * Payload for ValueSetAct
  */

@@ -12,27 +12,37 @@
  */
 
 import { getSupportedInterfaces } from 'ask-sdk-core';
-import { Intent, IntentRequest } from 'ask-sdk-model';
+import { IntentRequest } from 'ask-sdk-model';
+import i18next from 'i18next';
 import _ from 'lodash';
 import { Strings as $ } from '../../constants/Strings';
-import { Control, ControlProps, ControlState } from '../../controls/Control';
+import {
+    Control,
+    ControlInitiativeHandler,
+    ControlInputHandler,
+    ControlInputHandlingProps,
+    ControlProps,
+    ControlState,
+} from '../../controls/Control';
 import { ControlInput } from '../../controls/ControlInput';
 import { ControlResultBuilder } from '../../controls/ControlResult';
 import { InteractionModelContributor } from '../../controls/mixins/InteractionModelContributor';
 import { ValidationResult } from '../../controls/ValidationResult';
+import { GeneralControlIntent, unpackGeneralControlIntent } from '../../intents/GeneralControlIntent';
+import { SingleValueControlIntent } from '../../intents/SingleValueControlIntent';
 import { ControlInteractionModelGenerator } from '../../interactionModelGeneration/ControlInteractionModelGenerator';
-import { ModelData } from '../../interactionModelGeneration/ModelTypes';
+import { ModelData, SharedSlotType } from '../../interactionModelGeneration/ModelTypes';
 import { Logger } from '../../logging/Logger';
 import { ControlResponseBuilder } from '../../responseGeneration/ControlResponseBuilder';
 import { SystemAct } from '../../systemActs/SystemAct';
 import { assert } from '../../utils/AssertionUtils';
 import { StringOrList } from '../../utils/BasicTypes';
 import { DeepRequired } from '../../utils/DeepRequired';
-import { QuestionnaireControlBuiltIns } from './QuestionnaireControlBuiltIns';
-import { Handler, Item, QuestionnaireContent } from './QuestionnaireControlStructs';
-import { AskOneQuestionAct, ConfirmQuestionnaireAnswer } from './QuestionnaireControlSystemActs';
-import { DirectAnswerAct, UserAct } from './QuestionnaireUserActs';
-
+import { InputUtil } from '../../utils/InputUtil';
+import { falseIfGuardFailed, okIf } from '../../utils/Predicates';
+import { QuestionnaireControlAPLPropsBuiltIns } from './QuestionnaireControlBuiltIns';
+import { Question, QuestionnaireContent, RenderedQuestionnaireContent } from './QuestionnaireControlStructs';
+import { AskQuestionAct } from './QuestionnaireControlSystemActs';
 
 /**
  * Future feature ideas:
@@ -41,26 +51,6 @@ import { DirectAnswerAct, UserAct } from './QuestionnaireUserActs';
  */
 
 const log = new Logger('AskSdkControls:QuestionnaireControl');
-
-export interface InputMapper {
-    name: string;
-    
-    /**
-     * A function that interprets an input.
-     * 
-     * @returns: a UserAct if the input is interpretable as such, otherwise undefined.
-     * Producing a UserAct will generally cause the control to reply with `canHandle = true`
-     * 
-     * Usage:
-     *  * Mapping functions should consider only the local state.
-     *  * Mapping functions should be mutually-exclusive. That is, only one mapping
-     *    function should return a UserAct for a given input/state.
-     */
-    mappingFunc: (
-        control: QuestionnaireControl,
-        input: ControlInput,
-    ) => UserAct<QuestionnaireControl> | undefined | Promise<UserAct<QuestionnaireControl> | undefined>;
-}
 
 /**
  * Props for a QuestionnaireControl.
@@ -74,10 +64,9 @@ export interface QuestionnaireControlProps extends ControlProps {
     /**
      * Content for the questionnaire.
      */
-    questionnaireContent:
+    questionnaireData:
         | QuestionnaireContent
-        | ((control: QuestionnaireControl, input: ControlInput) => QuestionnaireContent);
-
+        | ((this: QuestionnaireControl, input: ControlInput) => QuestionnaireContent);
 
     /**
      * Slot type for the answers.
@@ -105,7 +94,7 @@ export interface QuestionnaireControlProps extends ControlProps {
      *  - the Control report isReady() = false if no value has been obtained.
      *  - the control will take the initiative when given the opportunity.
      */
-    required?: boolean | ((input: ControlInput) => boolean);
+    required?: boolean | ((this: QuestionnaireControl, input: ControlInput) => boolean);
 
     /**
      * Whether the Control has to obtain explicit confirmation of an answer.
@@ -115,7 +104,35 @@ export interface QuestionnaireControlProps extends ControlProps {
      * If `true`:
      *  - a yes/no question will be asked, e.g. 'was that [answer a]?'.
      */
-    answerConfirmationRequired?: boolean | ((input: ControlInput) => boolean);
+    answerConfirmationRequired?: boolean | ((this: QuestionnaireControl, input: ControlInput) => boolean);
+
+    /**
+     * Map questionId to a prompt fragment.
+     *
+     * Purpose:
+     *  - Many prompts will need to 'render the question' as part of the prompt. This prop
+     *    provides a single place to define mapping for use in many prompts.
+     *
+     * Usage:
+     *  - Default prompts make use of this mapping.
+     *  - Custom prompts may also refer to this mapping if it is convenient.
+     *  - If a common mapping isn't sufficient, each prompt can be overridden individually.
+     */
+    questionRenderer: (this: QuestionnaireControl, questionId: string, input: ControlInput) => string;
+
+    /**
+     * Map choiceId to a prompt fragment.
+     *
+     * Purpose:
+     *  - Many prompts will need to 'render the choice' as part of the prompt. This prop
+     *    provides a single place to define mapping for use in many prompts.
+     *
+     * Usage:
+     *  - Default prompts make use of this mapping.
+     *  - Custom prompts may also refer to this mapping if it is convenient.
+     *  - If a common mapping isn't sufficient, each prompt can be overridden individually.
+     */
+    choiceRenderer?: (this: QuestionnaireControl, choiceId: string, input: ControlInput) => string;
 
     /**
      * Props to customize the prompt fragments that will be added by
@@ -136,15 +153,9 @@ export interface QuestionnaireControlProps extends ControlProps {
     interactionModel?: QuestionnaireControlInteractionModelProps;
 
     /**
-     * Specifies how to convert inputs into a user act.
-     * 
-     * Default: QuestionnaireControl.createDefaultInputMappers()
-     * 
-     * Usage:
-     *  * to customize the set of mappers, either create them from scratch or call
-     *    `QuestionnaireControl.createDefaultInputMappers()` and edit.
+     * Props to configure input handling.
      */
-    inputMapper?: InputMapper | InputMapper[];
+    inputHandling?: ControlInputHandlingProps;
 
     /**
      * Props to customize the APL generated by this control.
@@ -159,6 +170,7 @@ export interface QuestionnaireControlProps extends ControlProps {
  * describing the reason it is not considered complete.
  */
 export type QuestionnaireCompleteFunction = (
+    this: QuestionnaireControl,
     state: QuestionnaireControlState,
     input: ControlInput,
 ) => true | ValidationResult;
@@ -191,7 +203,8 @@ export interface QuestionnaireControlActionProps {
  */
 export class QuestionnaireControlInteractionModelProps {
     /**
-     * Target-slot values associated with this Control.
+     * Target-slot values associated with this Control, both the control itself and all
+     * possible questions.
      *
      * Targets associate utterances to a control. For example, if the user says
      * "change the time", it is parsed as a `GeneralControlIntent` with slot
@@ -226,7 +239,8 @@ export class QuestionnaireControlInteractionModelProps {
     targets?: string[];
 
     /**
-     * Action slot-values associated to the control's capabilities.
+     * Action slot-values associated to the control's capabilities, both the control
+     * itself and all possible questions
      *
      * Default:
      * ```
@@ -236,22 +250,20 @@ export class QuestionnaireControlInteractionModelProps {
      * }
      * ```
      *
-     * Action slot-values associate utterances to a control. For example, if the
-     * user says "change the time", it is parsed as a `GeneralControlIntent`
-     * with slot values `action = change` and `target = time`.  Only controls
-     * that are registered with the `change` action should offer to handle this
-     * intent.
+     * Action slot-values associate utterances to a control. For example, if the user says
+     * "change the time", it is parsed as a `GeneralControlIntent` with slot values
+     * `action = change` and `target = time`.  Only controls that are registered with the
+     * `change` action should offer to handle this intent.
      *
      * Usage:
-     *  - This allows users to refer to an action using more domain-appropriate
-     *    words. For example, a user might like to say 'show two items' rather
-     *    that 'set item count to two'.  To achieve this, include the
-     *    slot-value-id 'show' in the list associated with the 'set' capability
-     *    and ensure the interaction-model includes an action slot value with
-     *    id=show and appropriate synonyms.
-     *  - The 'builtin_*' IDs are associated with default interaction model data
-     *    (which can be extended as desired). Any other IDs will require a full
-     *    definition of the allowed synonyms in the interaction model.
+     *  - This allows users to refer to an action using more domain-appropriate words. For
+     *    example, a user might like to say 'show two items' rather that 'set item count
+     *    to two'.  To achieve this, include the slot-value-id 'show' in the list
+     *    associated with the 'set' capability and ensure the interaction-model includes
+     *    an action slot value with id=show and appropriate synonyms.
+     *  - The 'builtin_*' IDs are associated with default interaction model data (which
+     *    can be extended as desired). Any other IDs will require a full definition of the
+     *    allowed synonyms in the interaction model.
      */
     actions?: QuestionnaireControlActionProps;
 }
@@ -261,9 +273,9 @@ export class QuestionnaireControlInteractionModelProps {
  * `this.renderAct()`.
  */
 export class QuestionnaireControlPromptProps {
-    askOneQuestionAct:
+    askQuestionAct:
         | StringOrList
-        | ((act: AskOneQuestionAct, control: QuestionnaireControl, input: ControlInput) => StringOrList);
+        | ((this: QuestionnaireControl, act: AskQuestionAct, input: ControlInput) => StringOrList);
     // valueSet?: StringOrList | ((act: ValueSetAct<any>, input: ControlInput) => StringOrList);
     // valueChanged?: StringOrList | ((act: ValueChangedAct<any>, input: ControlInput) => StringOrList);
     // invalidValue?: StringOrList | ((act: InvalidValueAct<any>, input: ControlInput) => StringOrList);
@@ -376,12 +388,17 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     static mergeWithDefaultProps(props: QuestionnaireControlProps): DeepRequired<QuestionnaireControlProps> {
         const defaults: DeepRequired<QuestionnaireControlProps> = {
             id: 'dummy',
-            questionnaireContent: { questions: [], choices: [] }, // dummy
+            questionnaireData: {
+                questions: [],
+                choices: [],
+                choiceForYesUtterance: 'dummy',
+                choiceForNoUtterance: 'dummy',
+            },
             slotType: 'dummy',
 
             required: true,
             answerConfirmationRequired: false,
-            
+
             completion: () => {
                 return { reasonCode: 'todo' };
             }, //TODO: implement default of allQuestionsAnswered.
@@ -392,12 +409,10 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
                 },
                 targets: [$.Target.Choice, $.Target.It],
             },
+            questionRenderer: (id: string) => id,
+            choiceRenderer: (id: string) => id,
             prompts: {
-                askOneQuestionAct: (act, control, input) => {
-                    const questionId = act.payload.focusQuestionId;
-                    const questionText = control.questionById(questionId, input);
-                    return questionText.text ?? questionText.id;
-                },
+                askQuestionAct: (act) => act.payload.renderedContent.questions[act.payload.questionId],
 
                 // confirmValue: (act) =>
                 //     i18next.t('LIST_CONTROL_DEFAULT_PROMPT_CONFIRM_VALUE', { value: act.payload.value }),
@@ -427,11 +442,7 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
                 //     }),
             },
             reprompts: {
-                askOneQuestionAct: (act, control, input) => {
-                    const questionId = act.payload.focusQuestionId;
-                    const questionText = control.questionById(questionId, input);
-                    return questionText.text ?? questionText.id;
-                },
+                askQuestionAct: (act) => act.payload.renderedContent.questions[act.payload.questionId],
                 // confirmValue: (act) =>
                 //     i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_CONFIRM_VALUE', { value: act.payload.value }),
                 // valueConfirmed: i18next.t('LIST_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED'),
@@ -459,395 +470,153 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
                 //         suggestions: ListFormatting.format(act.payload.choicesFromActivePage),
                 //     }),
             },
-            apl: QuestionnaireControlBuiltIns.APL.Default,
-            inputMapper: QuestionnaireControlBuiltIns.InputMappers.,
+            apl: QuestionnaireControlAPLPropsBuiltIns.Default,
+            inputHandling: {
+                customHandlingFuncs: [],
+            },
         };
 
         return _.merge(defaults, props);
     }
 
-    async tryInterpretInputAsUserAct(
-        input: ControlInput,
-    ): Promise<UserAct<QuestionnaireControl> | undefined> {
-        const funcs = Array.isArray(this.props.inputMapper)
-            ? this.props.inputMapper
-            : [this.props.inputMapper];
-        for (const func of funcs) {
-            const userAct = await func.call(this, input);
-            if (userAct !== undefined) {
-                return userAct;
-            }
-        }
+    standardInputHandlers: ControlInputHandler[] = [
+        {
+            name: 'std::DirectAnswer',
+            canHandle: this.isPositiveAnswerWithoutValue,
+            handle: this.handlePositiveAnswerWithoutValue,
+        },
+    ];
 
-        return undefined;
-    }
+    // const builtInCanHandle: boolean =
+    //     this.isSetWithValue(input) ||
+    //     this.isChangeWithValue(input) ||
+    //     this.isSetWithoutValue(input) ||
+    //     this.isChangeWithoutValue(input) ||
+    //     this.isBareValue(input) ||
+    //     this.isMappedBareValueDuringElicitation(input) ||
+    //     this.isConfirmationAffirmed(input) ||
+    //     this.isConfirmationDisaffirmed(input) ||
+    //     this.isOrdinalScreenEvent(input) ||
+    //     this.isOrdinalSelection(input);
 
-
-    handlers: Handler[] = [
-        {   
-            name: 'DirectAnswer',
-            canHandle: this.isDirectAnswer,
-            handle: this.handleDirectAnswer
-        }
-    ]
+    // logIfBothTrue(customCanHandle, builtInCanHandle);
+    // return customCanHandle || builtInCanHandle;
 
     // tsDoc - see Control
     async canHandle(input: ControlInput): Promise<boolean> {
-        
-        let matches = []
-        for (const handler of this.handlers) {
-            if(handler.canHandle(input)){
-                matches.push(handler)
+        const stdHandlers = this.standardInputHandlers;
+        const customHandlers = this.props.inputHandling.customHandlingFuncs ?? [];
+
+        let matches = [];
+        for (const handler of stdHandlers.concat(customHandlers)) {
+            if (await handler.canHandle.call(this, input)) {
+                matches.push(handler);
             }
         }
 
-        if(matches.length > 1){
-            log.warn(`More than one handler matched: ${JSON.stringify(matches.map(x=>x.name))}`);
+        if (matches.length > 1) {
+            log.error(
+                `More than one handler matched. Handlers in a single control should be mutually exclusive. ` +
+                    `Defaulting to the first. handlers: ${JSON.stringify(matches.map((x) => x.name))}`,
+            );
         }
 
-        if(matches.length === 1){
-            this.handleFunc = matches[0].handle;
+        if (matches.length >= 1) {
+            this.handleFunc = matches[0].handle.bind(this);
+            return true;
+        } else {
+            return false;
         }
-
-        log.info(
-            userAct !== undefined
-                ? 'Input interpreted as QuestionnaireControl user act: ' + JSON.stringify(userAct)
-                : 'Input could not be interpreted as a QuestionnaireControl user act.',
-        );
-
-        this.userAct = userAct;
-        return userAct !== undefined;
-
-        // const builtInCanHandle: boolean =
-        //     this.isSetWithValue(input) ||
-        //     this.isChangeWithValue(input) ||
-        //     this.isSetWithoutValue(input) ||
-        //     this.isChangeWithoutValue(input) ||
-        //     this.isBareValue(input) ||
-        //     this.isMappedBareValueDuringElicitation(input) ||
-        //     this.isConfirmationAffirmed(input) ||
-        //     this.isConfirmationDisaffirmed(input) ||
-        //     this.isOrdinalScreenEvent(input) ||
-        //     this.isOrdinalSelection(input);
-
-        // logIfBothTrue(customCanHandle, builtInCanHandle);
-        // return customCanHandle || builtInCanHandle;
     }
 
     // tsDoc - see Control
     async handle(input: ControlInput, resultBuilder: ControlResultBuilder): Promise<void> {
-        if (this.userAct === undefined) {
+        if (this.handleFunc === undefined) {
             log.error(
-                'QuestionnaireControl: handle called but no userAct identified.  are canHandle/handle out of sync?',
+                'QuestionnaireControl: handle called but this.handlerFunc not set.  are canHandle/handle out of sync?',
             );
-            const intent: Intent = (input.request as IntentRequest).intent;
-            throw new Error(`${intent.name} can not be handled by ${this.constructor.name}.`);
+            throw new Error(`this.handlerFunc not set.  are canHandle/handle out of sync?`);
         }
 
-        await this.userAct.process(this, input, resultBuilder);
-        if (resultBuilder.hasInitiativeAct() !== true && this.canTakeInitiative(input) === true) {
+        await this.handleFunc(input, resultBuilder);
+        if (resultBuilder.hasInitiativeAct() !== true && (await this.canTakeInitiative(input)) === true) {
             await this.takeInitiative(input, resultBuilder);
         }
     }
 
-    // private isSetWithValue(input: ControlInput): boolean {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, SingleValueControlIntent.intentName(this.props.slotType)));
-    //         const { feedback, action, target, valueStr, valueType } = unpackSingleValueControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
-    //         okIf(InputUtil.valueStrDefined(valueStr));
-    //         okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-    //         okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.set));
-    //         this.handleFunc = this.handleSetWithValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
+    private isPositiveAnswerWithoutValue(input: ControlInput): boolean {
+        try {
+            okIf(this.state.focusQuestionId !== undefined);
+            const question = this.getQuestionContentById(this.state.focusQuestionId, input);
 
-    // private handleSetWithValue(input: ControlInput, resultBuilder: ControlResultBuilder) {
-    //     const { valueStr, erMatch } = InputUtil.getValueResolution(input);
-    //     this.setValue(valueStr, erMatch);
-    //     this.validateAndAddActs(input, resultBuilder, $.Action.Set);
-    //     return;
-    // }
+            okIf(InputUtil.isIntent(input, GeneralControlIntent.name));
+            const { feedback, action, target } = unpackGeneralControlIntent(
+                (input.request as IntentRequest).intent,
+            );
+            okIf(feedback !== undefined || action !== undefined || target !== undefined); //sanity check that something is defined.
+            okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm]));
+            okIf(InputUtil.actionIsMatchOrUndefined(action, question.actions));
+            okIf(InputUtil.targetIsMatchOrUndefined(target, question.targets));
 
-    // private isSetWithoutValue(input: ControlInput): boolean {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, GeneralControlIntent.name));
-    //         const { feedback, action, target } = unpackGeneralControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-    //         okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.set));
-    //         this.handleFunc = this.handleSetWithoutValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleSetWithoutValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     this.askElicitationQuestion(input, resultBuilder, $.Action.Set);
-    //     return;
-    // }
-
-    // private isChangeWithValue(input: ControlInput): boolean {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, SingleValueControlIntent.intentName(this.props.slotType)));
-    //         const { feedback, action, target, valueStr, valueType } = unpackSingleValueControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
-    //         okIf(InputUtil.valueStrDefined(valueStr));
-    //         okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-    //         okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.change));
-    //         this.handleFunc = this.handleChangeWithValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleChangeWithValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     const { valueStr, erMatch } = InputUtil.getValueResolution(input);
-    //     this.setValue(valueStr, erMatch);
-    //     this.validateAndAddActs(input, resultBuilder, $.Action.Change);
-    //     return;
-    // }
-
-    // private isChangeWithoutValue(input: ControlInput): boolean {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, GeneralControlIntent.name));
-    //         const { feedback, action, target } = unpackGeneralControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-    //         okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.change));
-    //         this.handleFunc = this.handleChangeWithoutValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleChangeWithoutValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     this.askElicitationQuestion(input, resultBuilder, $.Action.Change);
-    //     return;
-    // }
-
-    // private isBareValue(input: ControlInput): any {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, SingleValueControlIntent.intentName(this.props.slotType)));
-    //         const { feedback, action, target, valueStr, valueType } = unpackSingleValueControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.feedbackIsUndefined(feedback));
-    //         okIf(InputUtil.actionIsUndefined(action));
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.valueStrDefined(valueStr));
-    //         okIf(
-    //             InputUtil.valueTypeMatch(
-    //                 valueType,
-    //                 this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
-    //             ),
-    //         );
-    //         this.handleFunc = this.handleBareValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleBareValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     const { valueStr, erMatch } = InputUtil.getValueResolution(input);
-    //     this.setValue(valueStr, erMatch);
-    //     this.validateAndAddActs(input, resultBuilder, this.state.elicitationAction ?? $.Action.Set);
-    //     return;
-    // }
-
-    // private isMappedBareValueDuringElicitation(input: ControlInput): any {
-    //     try {
-    //         okIf(InputUtil.isIntent(input));
-    //         okIf(this.state.activeInitiativeActName !== undefined);
-    //         okIf(this.state.activeInitiativeActName === RequestValueByListAct.name);
-    //         const intent = (input.request as IntentRequest).intent;
-    //         const mappedValue = this.props.interactionModel.slotValueConflictExtensions.intentToValueMapper(
-    //             intent,
-    //         );
-    //         okIf(mappedValue !== undefined);
-    //         this.handleFunc = this.handleMappedBareValue;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleMappedBareValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     const intent = (input.request as IntentRequest).intent;
-    //     const mappedValue = this.props.interactionModel.slotValueConflictExtensions.intentToValueMapper(
-    //         intent,
-    //     );
-    //     this.setValue(mappedValue!, true);
-    //     this.validateAndAddActs(input, resultBuilder, this.state.elicitationAction ?? $.Action.Set); // default to set if user just provided value un-elicited.
-    //     return;
-    // }
-
-    // private isConfirmationAffirmed(input: ControlInput): any {
-    //     try {
-    //         okIf(InputUtil.isBareYes(input));
-    //         okIf(this.state.activeInitiativeActName === ConfirmValueAct.name);
-    //         this.handleFunc = this.handleConfirmationAffirmed;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleConfirmationAffirmed(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     this.state.isValueConfirmed = true;
-    //     this.state.activeInitiativeActName = undefined;
-    //     resultBuilder.addAct(new ValueConfirmedAct(this, { value: this.state.value }));
-    // }
-
-    // private isConfirmationDisaffirmed(input: ControlInput): any {
-    //     try {
-    //         okIf(InputUtil.isBareNo(input));
-    //         okIf(this.state.activeInitiativeActName === ConfirmValueAct.name);
-    //         this.handleFunc = this.handleConfirmationDisaffirmed;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleConfirmationDisaffirmed(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     this.state.isValueConfirmed = false;
-    //     this.state.activeInitiativeActName = undefined;
-    //     resultBuilder.addAct(new ValueDisconfirmedAct(this, { value: this.state.value }));
-
-    //     const allChoices = this.getChoicesList(input);
-    //     if (allChoices === null) {
-    //         throw new Error('QuestionnaireControl.listItemIDs is null');
-    //     }
-    //     const choicesFromActivePage = this.getChoicesFromActivePage(allChoices);
-    //     this.addInitiativeAct(
-    //         new RequestValueByListAct(this, { choicesFromActivePage, allChoices }),
-    //         resultBuilder,
-    //     );
-    // }
-
-    // private isOrdinalScreenEvent(input: ControlInput) {
-    //     try {
-    //         okIf(InputUtil.isAPLUserEventWithMatchingControlId(input, this.id));
-    //         this.handleFunc = this.handleOrdinalScreenEvent;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleOrdinalScreenEvent(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     const onScreenChoices = this.getChoicesList(input);
-    //     if (onScreenChoices === null) {
-    //         throw new StateConsistencyError('OrdinalScreenEvent received but no known list values.');
-    //     }
-
-    //     const ordinal = (input.request as interfaces.alexa.presentation.apl.UserEvent).arguments![1];
-    //     if (ordinal < 0 || ordinal > onScreenChoices.length) {
-    //         throw new StateConsistencyError(
-    //             `APL Ordinal out of range. ordinal=${ordinal} valueList=${onScreenChoices}`,
-    //         );
-    //     }
-    //     const value = onScreenChoices[ordinal - 1];
-    //     this.setValue(value, true);
-
-    //     // feedback
-    //     resultBuilder.addAct(new ValueSetAct(this, { value }));
-    //     return;
-    // }
-
-    // private isOrdinalSelection(input: ControlInput): boolean {
-    //     try {
-    //         okIf(InputUtil.isIntent(input, OrdinalControlIntent.name));
-    //         const { feedback, action, target, 'AMAZON.Ordinal': value } = unpackOrdinalControlIntent(
-    //             (input.request as IntentRequest).intent,
-    //         );
-    //         okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-    //         okIf(InputUtil.actionIsMatchOrUndefined(action, this.props.interactionModel.actions.set));
-    //         okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-    //         okIf(InputUtil.valueStrDefined(value));
-    //         this.handleFunc = this.handleOrdinalSelection;
-    //         return true;
-    //     } catch (e) {
-    //         return falseIfGuardFailed(e);
-    //     }
-    // }
-
-    // private handleOrdinalSelection(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-    //     const allChoices = this.getChoicesList(input);
-    //     const spokenChoices = this.getChoicesFromActivePage(allChoices);
-    //     const { 'AMAZON.Ordinal': valueStr } = unpackOrdinalControlIntent(
-    //         (input.request as IntentRequest).intent,
-    //     );
-
-    //     const value = valueStr !== undefined ? Number.parseInt(valueStr!, 10) : undefined;
-    //     if (value !== undefined && value <= spokenChoices.length) {
-    //         this.setValue(spokenChoices[value - 1], true);
-    //         resultBuilder.addAct(new ValueSetAct(this, { value: this.state.value }));
-    //         return;
-    //     }
-    //     resultBuilder.addAct(
-    //         new UnusableInputValueAct(this, {
-    //             value,
-    //             reasonCode: 'OrdinalOutOfRange',
-    //             renderedReason: "I don't know which you mean.",
-    //         }),
-    //     );
-    //     return;
-    // }
-
-    // /**
-    //  * Directly set the value.
-    //  *
-    //  * @param value - Value
-    //  * @param erMatch - Whether the value is an ID defined for `this.slotType`
-    //  * in the interaction model
-    //  */
-    // setValue(value: string, erMatch: boolean = true) {
-    //     this.state.previousValue = this.state.value;
-    //     this.state.value = value;
-    //     this.state.erMatch = erMatch;
-    //     this.state.isValueConfirmed = false;
-    // }
-
-    /**
-     * Clear the state of this control.
-     */
-    clear() {
-        this.state = new QuestionnaireControlState();
-        this.state.value = {};
+            return true;
+        } catch (e) {
+            return falseIfGuardFailed(e);
+        }
     }
 
-    // tsDoc - see Control
-    canTakeInitiative(input: ControlInput): boolean {
-        return this.wantsToAskLineItemQuestion(input);
+    private handlePositiveAnswerWithoutValue(input: ControlInput, resultBuilder: ControlResultBuilder) {
+        const content = this.getQuestionnaireContent(input);
+        const question = this.getQuestionContentById(this.state.focusQuestionId!, input);
+        const positiveAnswer = content.choiceForYesUtterance ?? content.choices[0];
 
-        // return (
-        //     this.wantsToConfirmValue(input) ||
-        //     this.wantsToFixInvalidValue(input) ||
-        //     this.wantsToElicitValue(input)
-        // );
+        this.updateAnswer(question.id, positiveAnswer, input, resultBuilder);
+        return;
     }
 
+    standardInitiativeHandlers: ControlInitiativeHandler[] = [
+        {
+            name: 'std::askLineItem',
+            canTakeInitiative: this.wantsToAskLineItemQuestion,
+            takeInitiative: this.askLineItemQuestion,
+        },
+    ];
+
     // tsDoc - see Control
-    async takeInitiative(input: ControlInput, resultBuilder: ControlResultBuilder): Promise<void> {
+    async canTakeInitiative(input: ControlInput): Promise<boolean> {
+        const stdHandlers = this.standardInitiativeHandlers;
+
+        let matches = [];
+        for (const handler of stdHandlers) {
+            if (await handler.canTakeInitiative.call(this, input)) {
+                matches.push(handler);
+            }
+        }
+
+        if (matches.length > 1) {
+            log.error(
+                `More than one handler matched. Handlers in a single control should be mutually exclusive. ` +
+                    `Defaulting to the first. handlers: ${JSON.stringify(matches.map((x) => x.name))}`,
+            );
+        }
+
+        if (matches.length >= 1) {
+            this.initiativeFunc = matches[0].takeInitiative.bind(this);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    // public canTakeInitiative(input: ControlInput): boolean {
+    //     // return (
+    //     //     this.wantsToConfirmValue(input) ||
+    //     //     this.wantsToFixInvalidValue(input) ||
+    //     //     this.wantsToElicitValue(input)
+    //     // );
+    // }
+
+    // tsDoc - see Control
+    public async takeInitiative(input: ControlInput, resultBuilder: ControlResultBuilder): Promise<void> {
         if (this.initiativeFunc === undefined) {
             const errorMsg =
                 'QuestionnaireControl: takeInitiative called but this.initiativeFunc is not set. canTakeInitiative() should be called first to set this.initiativeFunc.';
@@ -893,9 +662,24 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
         }
 
         //TODO: evaluate completion prop.
-
-        this.initiativeFunc = this.askElicitationQuestion;
         return true;
+    }
+
+    private askLineItemQuestion(input: ControlInput, resultBuilder: ControlResultBuilder): void {
+        const content = this.getQuestionnaireContent(input);
+        const renderedContent = this.getRenderedQuestionnaireContent(input);
+        this.state.focusQuestionId = content.questions[0].id;
+        
+        const renderedQuestion = this.props.questionRenderer.call(this, this.state.focusQuestionId, input);
+
+        const initiativeAct = new AskQuestionAct(this, {
+            questionnaireContent: content,
+            renderedContent,
+            answers: this.state.value,
+            questionId: this.state.focusQuestionId,            
+        });
+        this.state.activeInitiative = { actName: initiativeAct.constructor.name };
+        resultBuilder.addAct(initiativeAct);
     }
 
     // validateAndAddActs(
@@ -958,31 +742,46 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     /**
      * Evaluate the questionnaireContent prop
      */
-    public evaluateQuestionnaireContentProp(input: ControlInput): QuestionnaireContent {
-        const propValue = this.props.questionnaireContent;
+    public getQuestionnaireContent(input: ControlInput): DeepRequired<QuestionnaireContent> {
+        const propValue = this.props.questionnaireData;
         return typeof propValue === 'function' ? (propValue as any).call(this, input) : propValue;
+    }
+
+    public getRenderedQuestionnaireContent(input: ControlInput): RenderedQuestionnaireContent {
+        const content = this.getQuestionnaireContent(input);
+        
+        
+        const renderedQuestions = _.fromPairs(content.questions.map(question=>[question.id, question]));
+        const renderedChoices = _.fromPairs(content.choices.map(choice=>[choice.id, choice]));
+
+
+        return {
+            questions: renderedQuestions,
+            choices: renderedChoices
+        }
     }
 
     private evaluateAPLPropNewStyle(prop: AplPropNewStyle, input: ControlInput): AplContent {
         return typeof prop === 'function' ? (prop as AplContentFunc).call(this, this, input) : prop;
     }
 
-    private askElicitationQuestion(input: ControlInput, resultBuilder: ControlResultBuilder) {
-        const content = this.evaluateQuestionnaireContentProp(input);
-        if (content === null) {
-            throw new Error('QuestionnaireControl.questionnaireContent is null');
-        }
+    // private askElicitationQuestion(input: ControlInput, resultBuilder: ControlResultBuilder) {
+    //     const content = this.getQuestionnaireContent(input);
+    //     if (content === null) {
+    //         throw new Error('QuestionnaireControl.questionnaireContent is null');
+    //     }
 
-        const initiativeAct = new AskOneQuestionAct(this, {
-            questionnaireContent: content,
-            currentAnswers: this.state.value,
-            focusQuestionId: 'cough',
-        });
-        resultBuilder.addAct(initiativeAct);
+    //     const initiativeAct = new AskQuestionAct(this, {
+    //         questionnaireContent: content,
+    //         answers: this.state.value,
+    //         questionId: 'cough',
+    //         renderedQuestion
+    //     });
+    //     resultBuilder.addAct(initiativeAct);
 
-        this.state.activeInitiative = { actName: initiativeAct.constructor.name };
-        return;
-    }
+    //     this.state.activeInitiative = { actName: initiativeAct.constructor.name };
+    //     return;
+    // }
 
     // addInitiativeAct(initiativeAct: InitiativeAct, resultBuilder: ControlResultBuilder) {
     //     this.state.activeInitiativeActName = initiativeAct.constructor.name;
@@ -990,7 +789,7 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     // }
 
     // tsDoc - see ControlStateDiagramming
-    stringifyStateForDiagram(): string {
+    public stringifyStateForDiagram(): string {
         let text = ''; // TODO:Maybe: some representation of the answers?
         if (this.state.activeInitiative !== undefined) {
             text += `[${this.state.activeInitiative.actName}]`;
@@ -1020,8 +819,8 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     // }
 
     // tsDoc - see Control
-    renderAct(act: SystemAct, input: ControlInput, builder: ControlResponseBuilder): void {
-        if (act instanceof AskOneQuestionAct) {
+    public renderAct(act: SystemAct, input: ControlInput, builder: ControlResponseBuilder): void {
+        if (act instanceof AskQuestionAct) {
             // const prompt = this.evaluatePromptProp(act, this.props.prompts.requestValue, input);
             // const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestValue, input);
 
@@ -1098,52 +897,59 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
     }
 
     // tsDoc - see Control
-    updateInteractionModel(generator: ControlInteractionModelGenerator, imData: ModelData) {
-        //     generator.addControlIntent(new GeneralControlIntent(), imData);
-        //     generator.addControlIntent(
-        //         new SingleValueControlIntent(
-        //             this.props.slotType,
-        //             this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
-        //         ),
-        //         imData,
-        //     );
-        //     generator.addControlIntent(new OrdinalControlIntent(), imData);
-        //     generator.addYesAndNoIntents();
-        //     if (this.props.interactionModel.targets.includes($.Target.Choice)) {
-        //         generator.addValuesToSlotType(
-        //             SharedSlotType.TARGET,
-        //             i18next.t('LIST_CONTROL_DEFAULT_SLOT_VALUES_TARGET_CHOICE', { returnObjects: true }),
-        //         );
-        //     }
-        //     if (this.props.interactionModel.actions.set.includes($.Action.Select)) {
-        //         generator.addValuesToSlotType(
-        //             SharedSlotType.ACTION,
-        //             i18next.t('LIST_CONTROL_DEFAULT_SLOT_VALUES_ACTION_SELECT', { returnObjects: true }),
-        //         );
-        //     }
+    public updateInteractionModel(generator: ControlInteractionModelGenerator, imData: ModelData) {
+        generator.addControlIntent(new GeneralControlIntent(), imData);
+        generator.addControlIntent(
+            new SingleValueControlIntent(
+                this.props.slotType,
+                //this.props.interactionModel.slotValueConflictExtensions.filteredSlotType, //TODO.
+            ),
+            imData,
+        );
+        //generator.addControlIntent(new OrdinalControlIntent(), imData);
+        generator.addYesAndNoIntents();
+        if (this.props.interactionModel.targets.includes($.Target.Choice)) {
+            generator.addValuesToSlotType(
+                SharedSlotType.TARGET,
+                i18next.t('QUESTIONNAIRE_CONTROL_DEFAULT_SLOT_VALUES_TARGET_CHOICE', { returnObjects: true }),
+            );
+        }
+        if (this.props.interactionModel.actions.set.includes($.Action.Select)) {
+            generator.addValuesToSlotType(
+                SharedSlotType.ACTION,
+                i18next.t('QUESTIONNAIRE_CONTROL_DEFAULT_SLOT_VALUES_ACTION_SELECT', { returnObjects: true }),
+            );
+        }
+
+        //todo: add actions for all questions.
     }
 
+    /**
+     * Clear the state of this control.
+     */
+    public clear() {
+        this.state = new QuestionnaireControlState();
+        this.state.value = {};
+    }
+
+    //TODO: actions should also be updated automatically as for targets.
+
     // tsDoc - see InteractionModelContributor
-    getTargetIds() {
+    public getTargetIds() {
         return this.props.interactionModel.targets;
     }
 
-    async updateAnswer(
-        answerAct: DirectAnswerAct,
+    public async updateAnswer(
+        questionId: string,
+        answer: string,
         input: ControlInput,
         resultBuilder: ControlResultBuilder,
     ): Promise<void> {
-        this.state.value[answerAct.questionId] = answerAct.answer;
-
-        const confirmationRequired = this.evaluateBooleanProp(this.props.answerConfirmationRequired, input);
-
-        if (confirmationRequired && answerAct.answer.atRiskOfMisunderstanding) {
-            resultBuilder.addAct(new ConfirmQuestionnaireAnswer(this));
-        }
+        this.state.value[questionId] = { answerId: answer, atRiskOfMisunderstanding: false };
     }
 
-    questionById(questionId: string, input: ControlInput): Item {
-        const questionnaireContent = this.evaluateQuestionnaireContentProp(input);
+    public getQuestionContentById(questionId: string, input: ControlInput): DeepRequired<Question> {
+        const questionnaireContent = this.getQuestionnaireContent(input);
         const questions = questionnaireContent.questions;
         const question = questions.find((x) => x.id === questionId);
 
@@ -1151,8 +957,8 @@ export class QuestionnaireControl extends Control implements InteractionModelCon
         return question;
     }
 
-    choiceIndexById(content: QuestionnaireContent, answerId: string): number {
-        const idx = content.choices.findIndex((x) => x.id === answerId);
+    public getChoiceIndexById(content: QuestionnaireContent, answerId: string): number {
+        const idx = content.choices.findIndex((choice) => choice.id === answerId);
         assert(idx >= 0, `Not found. answerId=${answerId}`);
         return idx;
     }

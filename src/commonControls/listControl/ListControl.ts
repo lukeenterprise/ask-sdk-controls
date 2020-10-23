@@ -94,8 +94,8 @@ export interface ListControlProps extends ControlProps {
     /**
      * List of slot-value IDs that will be presented to the user as a list.
      */
-    listItemIDs: string[] | ((input: ControlInput) => string[]);
-
+    listItemIDs: string[] | ((input: ControlInput) => string[]); // TODO: change to choices? simpler & match up with act payloads.
+     
     /**
      * The maximum number of items spoken per turn.
      */
@@ -204,7 +204,7 @@ export class ListControlInteractionModelProps {
      * Default: `['builtin_it']`
      *
      * Usage:
-     * - If this prop is defined, it replaces the default; it is not additive
+     * - If this prop is defined, it replaces the default; it is not additive to
      *   the defaults.  To add an additional target to the defaults, copy the
      *   defaults and amend.
      * - A control can be associated with many target-slot-values, eg ['date',
